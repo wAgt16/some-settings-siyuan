@@ -35,6 +35,28 @@ import type {
 /** 退出接口。渲染进程里所有"退出应用"最后都落到这一次 POST 上。 */
 const EXIT_PATH = "/api/system/exit";
 
+/**
+ * 宿主在发出退出请求**之前**就建立的东西。
+ *
+ * 3.8.7-beta.4 起，退出改走 `requestSystemExit()`：它先 `progressLoading(…, "exitProgress")`
+ * 铺一张全屏「正在退出」遮罩，再在 window 捕获阶段拦下 keydown / beforeinput / paste / drop
+ * 并 `stopImmediatePropagation()`，最后才发这一次 POST。也就是说我们的确认框弹出时，
+ * 屏幕上还压着宿主的遮罩，键盘也已经被封锁：
+ * - 遮罩：自己收掉（宿主随后用 `progressLoading({code:2})` 关的是 `?.remove()`，元素不在也不报错）；
+ * - 键盘：在 mount 阶段就注册一个 window 捕获期 keydown，它比宿主那批晚注册的先执行，
+ *   只把 Enter / Escape 交还给确认框，其余按键照旧让宿主封住（遮罩下面本来就不该能编辑）。
+ */
+const EXIT_PROGRESS_ID = "exitProgress";
+/** 确认框（宿主的 `confirmDialog`）：`data-key` 与两个按钮 id 都是内核写死的。 */
+const CONFIRM_DIALOG_SELECTOR = '[data-key="dialog-confirm"]';
+const CONFIRM_BUTTON_ID = "confirmDialogConfirmBtn";
+const CANCEL_BUTTON_ID = "cancelDialogConfirmBtn";
+
+/** 收掉宿主那张「正在退出」遮罩；不在就什么也不做。 */
+const dismissExitOverlay = (): void => {
+    document.getElementById(EXIT_PROGRESS_ID)?.remove();
+};
+
 const urlOf = (input: RequestInfo | URL): string => {
     if (typeof input === "string") {
         return input;
@@ -127,6 +149,24 @@ export const mountExitConfirm = (host: FeatureHost): FeatureInstance => {
             );
         });
 
+    /** 把 Enter / Escape 交还给正在等的那个确认框；其余按键仍旧留给宿主的封锁。 */
+    const onKeydown = (event: KeyboardEvent) => {
+        if (!asking || event.isComposing) {
+            return;
+        }
+        const buttonID = event.key === "Enter" ? CONFIRM_BUTTON_ID : event.key === "Escape" ? CANCEL_BUTTON_ID : "";
+        if (!buttonID) {
+            return;
+        }
+        const button = document.querySelector<HTMLElement>(`${CONFIRM_DIALOG_SELECTOR} #${buttonID}`);
+        if (!button) {
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        button.click();
+    };
+
     const patched = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         if (!isQuitRequest(input, init) || !fromWindow()) {
             return original.call(window, input, init);
@@ -136,6 +176,8 @@ export const mountExitConfirm = (host: FeatureHost): FeatureInstance => {
             return Promise.reject(cancelled());
         }
         asking = true;
+        // 先收掉宿主的「正在退出」遮罩，否则用户是在遮罩上被问话
+        dismissExitOverlay();
         return ask().then((confirmed) => {
             asking = false;
             if (!confirmed) {
@@ -146,10 +188,12 @@ export const mountExitConfirm = (host: FeatureHost): FeatureInstance => {
         });
     };
 
+    window.addEventListener("keydown", onKeydown, true);
     window.fetch = patched;
 
     return {
         destroy: () => {
+            window.removeEventListener("keydown", onKeydown, true);
             // 只还原自己装上的那一个：期间可能已有别的代码换了 fetch
             if (window.fetch === patched) {
                 window.fetch = original;
