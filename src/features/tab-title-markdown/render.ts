@@ -36,6 +36,14 @@ const TAB_LIST_SELECTOR = '[data-name="tabList"] .b3-menu__label';
 const MOBILE_TITLE_SELECTOR = ".mobile-tabs .mobile-tabs__item-title";
 
 /**
+ * 宿主的富标题预览：内核把标题的行级 AST 直接投影进这个元素
+ * （`document-title-preview` + `b3-typography`）。页签条、移动端页签概览都会被这样写；
+ * 它里面的子节点就是标题本身，一个字的纯文本都可能命中语法字符（`a_b`、`1*2`、`a = b`），
+ * 所以整块都不能动。
+ */
+const RICH_TITLE_CLASS = "document-title-preview";
+
+/**
  * 会承载上述文字层的容器。
  *
  * 只用来快速排除「这次突变显然无关」：真正决定改不改 DOM 的是上面那几条精确选择器，
@@ -71,6 +79,10 @@ export const mountTabTitleMarkdown = (host: FeatureHost): FeatureInstance => {
     const hasMarkup = (element: HTMLElement): boolean => element.querySelector(`[${MARK_ATTR}]`) !== null;
 
     const sync = (element: HTMLElement) => {
+        // 宿主自己投影的富标题整块跳过：一旦被我们 replaceChildren 掉，内核那份行级 AST 就没了
+        if (element.classList.contains(RICH_TITLE_CLASS)) {
+            return;
+        }
         // 定界符留在 DOM 里，所以 textContent 始终是原文，不需要另存一份
         const source = element.textContent ?? "";
         // 原文没变不等于 DOM 没被重写过：打开文档时内核会用**同一份**标题再写一次
