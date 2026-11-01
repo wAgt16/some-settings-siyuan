@@ -40,6 +40,13 @@ const HTML_CODE_SELECTOR = ".b3-typography code:not(pre code):not(.hljs)";
 const CODE_SELECTOR = `${PROTYLE_CODE_SELECTOR}, ${HTML_CODE_SELECTOR}`;
 const STREAMING_SELECTOR = ".agent-chat__body--streaming";
 const BUTTON_CLASS = "ss-inline-code-copy";
+/**
+ * 宿主的「富标题预览」：内核把文档标题的行级 AST 投影进文档树、页签条、大纲与
+ * 移动端页签概览里的标题元素（`.document-title-preview`）。标题里也可以有行内代码，
+ * 但那是标题本身、不是正文内容 —— 那里挂复制按钮既没有意义，按钮还是 `position: fixed`，
+ * 会飘在树的文字上。
+ */
+const TITLE_PREVIEW_SELECTOR = ".document-title-preview";
 const DEFAULT_MODE = "off";
 /** 行内代码与复制按钮之间那段空隙的容差（px）。 */
 const HOVER_GAP = 8;
@@ -165,10 +172,11 @@ export const mountInlineCodeCopy = (host: FeatureHost): FeatureInstance => {
      * 它可能落在被隐藏的容器里（切走的页签、折叠的面板），而按钮是 `position: fixed`
      * 的：容器一藏，按钮就会「飘」在别的面板上，既认不出来源、点它也没有意义。
      * `getClientRects()` 为空即说明它没有布局盒（即在 `display: none` 子树里），
-     * 再加上流式输出的排除。
+     * 再加上流式输出与标题预览的排除。
      */
     const isVisible = (element: HTMLElement): boolean =>
-        !element.closest(STREAMING_SELECTOR) && element.getClientRects().length > 0;
+        !element.closest(STREAMING_SELECTOR) && !element.closest(TITLE_PREVIEW_SELECTOR) &&
+        element.getClientRects().length > 0;
 
     /**
      * 移动端的"悬浮"目标：光标所在的那段行内代码。
