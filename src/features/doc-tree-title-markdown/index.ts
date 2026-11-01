@@ -12,6 +12,11 @@ export default defineFeature({
     category: "ui",
     name: "feature.docTreeTitleMarkdown.name",
     description: "feature.docTreeTitleMarkdown.desc",
+    // 思源自己把文档标题存成行级 AST，并把它投影进文档树的标题元素
+    // （`protyle/header/documentTitlePreview.ts` + `layout/dock/docTree/DocTreeController.ts`）。
+    // 标题里的行内格式从此由宿主负责，这份补丁在实现之后的那个预发布版退役：
+    // 从该版本起插件不再加载它的配置，设置面板里也不再出现这一项。
+    deprecatedSince: "3.8.10-alpha.2",
     settings: [
         {
             kind: "switch",

@@ -33,6 +33,11 @@ export default defineFeature({
     category: "ui",
     name: "feature.agentThinkingStickyHeader.name",
     description: "feature.agentThinkingStickyHeader.desc",
+    // 思源自己已经把标题吸顶与「折叠后把卡片顶沿对回上沿」都做了
+    // （`assets/scss/business/_ai_agent.scss` 的 `.agent-chat__thinking-header` 粘性定位，
+    // 加上 `AgentChat.anchorThinkingCard()`），这份补丁在实现之后的那个预发布版退役：
+    // 从该版本起插件不再加载它的配置，设置面板里也不再出现这一项。
+    deprecatedSince: "3.8.10-alpha.2",
     settings: [
         {
             kind: "switch",

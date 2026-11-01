@@ -13,6 +13,12 @@ export default defineFeature({
     category: "ui",
     name: "feature.tabTitleMarkdown.name",
     description: "feature.tabTitleMarkdown.desc",
+    // 思源自己把文档标题存成行级 AST，并把它投影进桌面页签条、移动端页签概览与大纲
+    // （`layout/Tab.ts` 的 `updateTitle`、`mobile/tabs/MobileTabs.ts`、
+    // `protyle/header/documentTitlePreview.ts`）。标题里的行内格式从此由宿主负责，
+    // 这份补丁在实现之后的那个预发布版退役：从该版本起插件不再加载它的配置，
+    // 设置面板里也不再出现这一项。
+    deprecatedSince: "3.8.10-alpha.2",
     isEnabled: (config) => config.scope !== "disabled",
     settings: [
         {

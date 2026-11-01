@@ -33,6 +33,12 @@ const inEachTree = (suffix: string): string => TREES.map((tree) => `${tree} ${su
 
 /** 面板里的标题文本层。 */
 const TITLE_SELECTOR = inEachTree(".b3-list-item__text");
+/**
+ * 宿主的富标题预览：内核把标题的行级 AST 直接投影进这个元素
+ * （`document-title-preview` + `b3-typography`）。它里面的子节点就是标题本身，
+ * 一个字的纯文本都可能命中语法字符（`a_b`、`1*2`、`a = b`），所以整块都不能动。
+ */
+const RICH_TITLE_CLASS = "document-title-preview";
 /** 已经被我们渲染过的标题：标题层里带着我们的节点。 */
 const RENDERED_SELECTOR = inEachTree(`.b3-list-item__text [${MARK_ATTR}]`);
 const OBSERVE_OPTIONS: MutationObserverInit = {childList: true, subtree: true, characterData: true};
@@ -45,6 +51,10 @@ export const mountDocTreeTitleMarkdown = (host: FeatureHost): FeatureInstance =>
     const rendered = new WeakMap<HTMLElement, string>();
 
     const sync = (title: HTMLElement) => {
+        // 宿主自己投影的富标题整块跳过：一旦被我们 replaceChildren 掉，内核那份行级 AST 就没了
+        if (title.classList.contains(RICH_TITLE_CLASS)) {
+            return;
+        }
         // 定界符留在 DOM 里，所以 textContent 始终是原文，不需要另存一份
         const source = title.textContent ?? "";
         if (!MARKDOWN_CHARS.test(source) || rendered.get(title) === source) {
