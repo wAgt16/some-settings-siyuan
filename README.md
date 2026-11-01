@@ -98,7 +98,10 @@ plugin reload, and a feature that only works on one frontend never appears in th
   plain ones, so the result can go straight into a field that validates its content (an activation key, for example).
 * Inline Markdown in tab and document tree titles only **hides** the syntax characters in the DOM; the title text
   itself is unchanged, so everything that reads it verbatim (drag hints, `document.title`, the unlock prompt of an
-  encrypted notebook) still gets the original. Turning the feature off restores the plain title.
+  encrypted notebook) still gets the original. Turning the feature off restores the plain title. Both features are
+  **built into SiYuan since v3.8.10-alpha.2** — document titles carry inline formatting themselves and the tree, the
+  tab bar and the outline render that title directly — so the plugin stops loading them and stops showing their rows
+  from that version on; older versions keep working, and the plugin never touches the rich titles SiYuan projects.
 * Jump-to-last-position only takes over whole-document bookmarks opened with a plain left click;
   modified clicks keep SiYuan's own behaviour (new tab, split, keep cursor), and bookmarks on a block are untouched.
 * Ask-before-quitting covers the main menu's Quit and closing the window when SiYuan is set to quit on close. A tray
@@ -106,10 +109,10 @@ plugin reload, and a feature that only works on one frontend never appears in th
   fails, cannot be reached by any plugin API.
 * The recording window only replaces the UI. Permission handling, MP3 encoding, upload and inserting the audio block
   all stay SiYuan's own code, and SiYuan's recorder has no pause, so the window offers stop only.
-* Native-style mobile dropdowns are built into SiYuan since **v3.8.7-alpha.2**: from that version on the plugin no
-  longer loads this feature's configuration and no longer shows its row in the settings panel. On older versions it is
-  best-effort: on some kernel/platform combinations the system picker still opens, in which case the select behaves
-  exactly as it does without the plugin.
+* Native-style mobile dropdowns are built into SiYuan since **v3.8.7-alpha.2**: from the following release,
+  v3.8.7-alpha.3, the plugin no longer loads this feature's configuration and no longer shows its row in the settings
+  panel. On older versions it is best-effort: on some kernel/platform combinations the system picker still opens, in
+  which case the select behaves exactly as it does without the plugin.
 * Asset rows land directly in the context menu, next to SiYuan's own _Modified_ / _Created_ rows and after a
   separator, rather than inside the **Plugin** submenu. Only workspace assets (`assets/…`) have a file size and a
   modified time — external URLs and `data:` URIs do not.
@@ -146,7 +149,9 @@ plugin reload, and a feature that only works on one frontend never appears in th
   reading, collapsing a card that was scrolled past its top puts the view back on that card: its header sits at the
   panel top again and the agent's output below it appears right under the header instead of being pushed out of
   sight. Expanding never scrolls — the card grows downwards, so the header stays where it was — and a card that is
-  still in view is left alone too.
+  still in view is left alone too. This feature is **built into SiYuan since v3.8.10-alpha.2** (the header pins
+  itself and the view is re-anchored on collapse), so the plugin stops loading it and stops showing its row from that
+  version on; older versions keep working.
 * _Details for the agent's tool calls_ reads **only responses the panel has already received**: SiYuan offers
   plugins no way to read agent sessions, so the plugin listens on two fronts — the event stream of the turn that is
   running (which carries the arguments of every call) and the two archive responses the panel requests itself

@@ -126,6 +126,39 @@
     所以 `FeatureActionContext` 提供 `configOf` / `updateConfig`：`updateConfig` 立即落盘、触发挂载，
     同时更新该功能的草稿与开关控件，两边不打架。
 
+17. **宿主投影出来的富标题节点（`.document-title-preview`）整块都不能碰。**
+    思源把文档标题存成行级 AST，再用 `protyle/header/documentTitlePreview.ts` 把这份 AST 直接投影进
+    文档树的 `.b3-list-item__text`、页签条的 `.item__text`、大纲行与移动端页签概览的标题元素，并给元素加上
+    `b3-typography` + `document-title-preview`。插件的标题 Markdown 功能（`doc-tree-title-markdown`、
+    `tab-title-markdown`）原来靠「标题里出现语法字符就 `replaceChildren`」工作，于是：
+    * 一旦宿主投影出富标题，只要标题的纯文本里含语法字符（`doc-tree-title-markdown` 与
+      `tab-title-markdown` 认的是下划线、星号、波浪号、脱字符、等号与反引号），插件就会把宿主那一片 AST
+      整块换掉 —— `a_b`、`1*2`、`a = b` 这种普通标题就够触发，标题里的格式、引用、标签、公式全部消失；
+    * `destroy()` / `restore()` 用 `textContent = …` 还原，会把富标题**永久**压成纯文本，
+      直到宿主下一次改写这个元素（`titleVersion` 变化）为止。
+      **规则：宿主自己投影的节点一律按 `document-title-preview` 类早退，既不渲染也不还原。**
+      顺带注意富标题还会给别处带来新作用面：`span[data-type~="code"]` 现在会出现在文档树、页签与大纲的标题里，
+      任何「给正文行内元素挂东西」的功能都要把它排掉（见 `inline-code-copy` 的 `TITLE_PREVIEW_SELECTOR`）。
+
+18. **退出确认要在宿主的键盘封锁之前拿到 Enter / Escape。**
+    3.8.7-beta.4 起宿主的退出改走 `dialog/exitRequest.ts` 的 `requestSystemExit()`，它在发
+    `POST /api/system/exit` **之前**就做两件事：`progressLoading({code:1}, "exitProgress")` 铺一张全屏
+    「正在退出」遮罩，并在 `window` **捕获阶段**注册 `keydown / beforeinput / paste / drop`，
+    命中就 `preventDefault()` + `stopImmediatePropagation()`。于是插件的确认框：
+    * 弹在宿主那张遮罩之上（用户先看到「正在退出」再被问话）—— 询问前把 `#exitProgress` 删掉即可，
+      宿主随后的 `progressLoading({code:2})` 是 `?.remove()`，元素不在也不报错；
+    * 键盘全失效（Enter / Escape / Tab 都进不来，Dialog 自己的 Tab 约束也收不到事件）——
+      必须在 **mount 阶段**就注册 `window` 捕获期 `keydown`：同一节点同一阶段按注册顺序执行，
+      宿主那批是发请求时才注册的，一定排在我们后面。只把 Enter / Escape 转成点确认框的按钮，
+      其余按键照旧让它封（遮罩下面本来就不该能编辑）。
+      另外取消后宿主必然 catch 出一个「退出等待失败」弹窗，仍要靠 `dismissExitFailure()` 在 1 秒内点掉。
+
+19. **`backdrop-filter: revert` 回滚不到宿主那条规则。**
+    `revert` 回滚的是**级联来源**（回到浏览器默认值），不是「上一条作者样式」。所以想「把这条属性交还宿主」
+    时写 `revert` 会得到 `none` 而不是宿主的 `blur(8px) saturate(105%)` —— 实测就是进度遮罩的毛玻璃消失。
+    正确做法是**一开始就别匹配**：把选择器写成 `.b3-dialog__scrim:not(.b3-dialog__scrim--progress)`，
+    宿主的声明根本没被覆盖，也就无所谓还回去。
+
 ---
 
 ## 各功能的实现取舍
@@ -160,12 +193,16 @@
   剪贴板，肉眼看不出差别，粘进填写密钥这类严格输入框就直接报错。
   **规则：把 DOM 文本送进剪贴板时，必须做与内核复制通路同样的一遍规范化**
   （零宽连字符 `\u200d` 要留给 emoji，不能删）。
+  作用面只认**正文**：宿主投影进文档树、页签、大纲与移动端页签概览的富标题里也会有行内代码，
+  那里没有按钮的意义（按钮还是 `position: fixed`，会飘在树的文字上），所以 `isVisible()` 里把它们整块排掉。
 * **`exit-confirm` 守的是渲染进程发出的那一次 `POST /api/system/exit`** —— 菜单退出、托盘退出、
   关窗即退出最后都落到它上面，三者请求体一字不差；渲染进程里唯一还能区分托盘退出的判据是窗口状态，
   所以只在前台窗口发问。两条路仍然拦不住，因为没有任何插件 API 能够到它们：连接**远程内核**时退出不发这个请求；
   请求本身失败时宿主的兜底是直接发 `siyuan-quit`。从 3.8.7-beta.4 起宿主改用 `requestSystemExit()`，
   它会把 `AbortError` 也当成失败并弹「退出等待失败」，所以取消后要顺手点掉那个窗口（见 `confirm.ts` 的
   `dismissExitFailure()`）；它只在取消后的 1 秒内生效，真正的退出失败发生在用户确认之后。
+  同一个改动还让它**在发请求之前**就铺上「正在退出」遮罩并封锁键盘，询问前要自己收掉遮罩、
+  并抢在封锁之前接管 Enter / Escape（见上面第 18 条）。
 * **`recording-window` 靠那条永不消失的录音提示驱动**：认出它、把它藏起来（留在 DOM 里，
   因为它那个按钮是 `stopRecord` 的唯一入口），内核收掉它时浮窗跟着关闭。移动端每秒重算一次
   底部操作条与键盘工具栏的**顶沿**（不是高度：底部操作条浮在视口底边之上，只量高度会让浮窗压住它），
@@ -177,6 +214,8 @@
   打开文档时 `Title.render` 拿文档树里那份标题再调一次 `Tab.updateTitle`，而它直接写 `innerHTML`。
   所以「这份原文已经渲染过」的去重不能只看 `textContent`，还要确认节点里仍带着我们的标记，
   否则那次重写会被当成「已经渲染过」，页签从此停在纯文本上（只在打开的一瞬间看得到渲染结果）。
+  宿主开始投影富标题之后，这类重写变成了行级 AST（`.document-title-preview`），那两个标题功能一律早退
+  （见上面第 17 条），并从 v3.8.10-alpha.2 起退役。
 * **`deepseek-balance` 的余额行跟着面板走**：思源的智能体面板是懒创建的，也可能被整体换掉
   （移动停靠位置、切换布局、移动端每次重新打开），所以只要 body 有变化、以及每个轮询周期，都会重新插一次。
   只有当前模型不是「已启用的官网 api.deepseek.com DeepSeek 模型」时整行才收起。
@@ -250,3 +289,14 @@
   创建文件本身走 `/api/asset/upload` 提交一个 0 字节的 Blob：内核按导入流程命名
   （`原名-笔记ID.后缀`）、按当前文档选择 assets 目录，并对加密笔记本做加密写入 ——
   插件自己拼名字、直接写盘会同时绕开这三件事。
+
+* **`modal-blur` 只给「宿主没自己处理过的」遮罩加模糊**：进度遮罩（导入 / 重建索引 / 退出等待）
+  自 3.8.9-alpha.6 起宿主自己写了底色与 `backdrop-filter: blur(8px) saturate(105%)`，
+  无差别匹配 `.b3-dialog__scrim` 会把它顶掉，所以选择器直接从 `:not` 里排掉它（见上面第 19 条）。
+  移动端底部弹层（`.mobile-bottom-sheet-dialog` 加在 Dialog 最外层）同理：它的遮罩是透明的、
+  只接「拖动下滑关闭」，糊上去就是整页正文被模糊 —— 按类名一次性排除，别逐个列 `data-key`，
+  用它的地方还在增加（emoji、属性面板、反链、引用、行背景、位置编辑、数据库新建项……）。
+* **`first-doc-icon` 不再与宿主赛跑**：3.8.9 起「添加图标」按钮只打开 emoji 面板，不再先写一个随机
+  emoji，所以本功能做的事变成「面板打开前先把配置好的图标写上」。拦截点击仍然必要（否则宿主的处理器
+  会先把面板打开），但注释与文案里「抢写随机值」那套说法已经过期；写入仍必须是**码点十六进制串**
+  （`unicode2Emoji` 的约定），写字符本身会让文件树 / 大纲的分支走错。
