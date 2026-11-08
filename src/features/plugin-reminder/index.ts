@@ -18,7 +18,7 @@ const shortRepo = (url: string): string =>
 
 export default defineFeature({
     id: "plugin-reminder",
-    category: "about",
+    category: "plugin",
     name: "feature.pluginReminder.name",
     description: "feature.pluginReminder.desc",
     isEnabled: () => false,

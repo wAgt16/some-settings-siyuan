@@ -20,7 +20,7 @@ import {
 
 export default defineFeature({
     id: "daily-note-direct",
-    category: "function",
+    category: "editor",
     name: "feature.dailyNoteDirect.name",
     description: "feature.dailyNoteDirect.desc",
     settings: [

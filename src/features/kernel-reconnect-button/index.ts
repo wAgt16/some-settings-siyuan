@@ -13,7 +13,7 @@ import {mountReconnectButton} from "./button";
 
 export default defineFeature({
     id: "kernel-reconnect-button",
-    category: "function",
+    category: "connection",
     name: "feature.kernelReconnectButton.name",
     description: "feature.kernelReconnectButton.desc",
     settings: [

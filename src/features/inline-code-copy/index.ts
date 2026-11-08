@@ -13,7 +13,7 @@ import {mountInlineCodeCopy} from "./copy";
 
 export default defineFeature({
     id: "inline-code-copy",
-    category: "ui",
+    category: "editor",
     name: "feature.inlineCodeCopy.name",
     description: "feature.inlineCodeCopy.desc",
     isEnabled: (config) => config.mode !== "off",

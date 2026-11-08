@@ -9,7 +9,7 @@ import {mountBookmarkLastPosition} from "./bookmark";
 
 export default defineFeature({
     id: "bookmark-last-position",
-    category: "function",
+    category: "doc-tree",
     name: "feature.bookmarkLastPosition.name",
     description: "feature.bookmarkLastPosition.desc",
     settings: [

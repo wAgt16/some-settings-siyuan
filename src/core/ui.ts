@@ -6,7 +6,7 @@
  * 目标是让插件设置面板与「设置」里的原生面板逐像素一致：
  * 左侧文案（标题 + 灰色小字说明）在左，控件靠右固定宽度。
  *
- * 面板按页签组织，三种分类各占一个页签，页签本身两套外观：
+ * 面板按页签组织，每个分类（按作用到的原生功能划分）各占一个页签，页签本身两套外观：
  *
  *   .some-settings-panel--tabs                    桌面端：左右分栏
  *     .some-settings-panel__side       页签列表（.b3-list-item，照抄内核设置左侧）
@@ -75,13 +75,19 @@ export const tabSideHtml = (itemsHtml: string): string =>
 export const tabBarHtml = (itemsHtml: string): string =>
     `<div class="layout-tab-bar fn__flex fn__flex-shrink">${itemsHtml}</div>`;
 
+/** 页签图标：桌面端与移动端显示同一个 symbol。 */
+const tabIconHtml = (tab: PanelTab): string =>
+    `<svg class="${PANEL_CLASS}__tab-icon"><use xlink:href="#${tab.icon}"></use></svg>`;
+
 export const tabItemHtml = (tab: PanelTab, active: boolean, mobile: boolean): string => {
     if (mobile) {
-        return `<div class="${PANEL_CLASS}__tab item item--full${active ? " item--focus" : ""}"
+        // 移动端页签栏是可以左右滑动的一整条：每一项按内容给宽度、不参与收缩，
+        // 所以这里不再用两个 fn__flex-1 把文字夹在中间 —— 那样每一项都会抢宽度，
+        // 页签一多就全挤成等分，滑都滑不动。
+        return `<div class="${PANEL_CLASS}__tab item${active ? " item--focus" : ""}"
     data-ss-tab="${tab.id}" role="tab" tabindex="0"${active ? ' aria-selected="true"' : ""}>
-    <span class="fn__flex-1"></span><span class="item__text">${
-            escapeHtml(tab.label)
-        }</span><span class="fn__flex-1"></span>
+    ${tabIconHtml(tab)}
+    <span class="item__text">${escapeHtml(tab.label)}</span>
 </div>`;
     }
     return `<li class="b3-list-item ${PANEL_CLASS}__tab${active ? " b3-list-item--focus" : ""}"
@@ -314,6 +320,35 @@ export const PANEL_CSS = `
 .${PANEL_CLASS}--mobile > .layout-tab-bar {
     flex-shrink: 0;
     background-color: transparent;
+    /* 页签按原生功能区划分后有七个，一屏放不下：整条可以左右滑动，
+       每一项按内容给宽度（flex: 0 0 auto），不做等分也不换行。
+       刻意不加 scroll-snap：吸附会在每一项上顿一下，手指的惯性被打断，滑起来是「一格一格」的黏感；
+       页签本来就短，靠惯性滑到看得见的位置比被吸附到整项更顺手。 */
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.${PANEL_CLASS}--mobile > .layout-tab-bar::-webkit-scrollbar {
+    display: none;
+}
+.${PANEL_CLASS}--mobile > .layout-tab-bar > .${PANEL_CLASS}__tab {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* 每项一个能整块点中的宽度：图标 + 四个汉字上下，再窄就只能靠精准点字 */
+    min-width: 6.5rem;
+    padding: 0 10px;
+}
+/* 页签图标：两端同一份，移动端不再只有文字 */
+.${PANEL_CLASS}__tab-icon {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    margin-inline-end: 6px;
+    fill: currentColor;
 }
 /* 桌面端：页签列表 + 内容，左右分栏。宽度、内边距与分隔线照抄内核设置的
    .config__panel > .config__side（这里按「功能 / 界面 / 关于」三个短标签收窄到 220px）。 */

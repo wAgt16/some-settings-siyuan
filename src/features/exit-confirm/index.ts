@@ -23,7 +23,7 @@ const appliesHere = (config: Record<string, unknown>): boolean => {
 
 export default defineFeature({
     id: "exit-confirm",
-    category: "function",
+    category: "appearance",
     name: "feature.exitConfirm.name",
     description: "feature.exitConfirm.desc",
     isEnabled: appliesHere,

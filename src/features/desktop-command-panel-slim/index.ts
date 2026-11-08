@@ -12,7 +12,7 @@ import {mountCommandPanelSlim} from "./slim";
 
 export default defineFeature({
     id: "desktop-command-panel-slim",
-    category: "ui",
+    category: "appearance",
     name: "feature.commandPanelSlim.name",
     description: "feature.commandPanelSlim.desc",
     frontends: ["desktop"],

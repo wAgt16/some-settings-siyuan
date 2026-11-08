@@ -11,7 +11,7 @@ import {clearAllConfigs} from "./clear";
 
 export default defineFeature({
     id: "clear-config",
-    category: "about",
+    category: "plugin",
     name: "feature.clearConfig.name",
     description: "feature.clearConfig.desc",
     isEnabled: () => false,

@@ -18,7 +18,7 @@ const CONTROL_FILE = path.join(root, "feature-control.json");
 const REGISTRY_FILE = path.join(root, "src", "core", "registry.ts");
 const I18N_DIR = path.join(root, "src", "i18n");
 const VALID_STATES = [0, 1, 2, 3];
-const VALID_CATEGORIES = ["function", "ui", "about"];
+const VALID_CATEGORIES = ["ai", "editor", "doc-tree", "appearance", "connection", "settings", "plugin"];
 
 const problems = [];
 const fail = (message) => problems.push(message);

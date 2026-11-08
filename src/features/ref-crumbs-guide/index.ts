@@ -1,5 +1,5 @@
 /**
- * 界面：指向同作者另一个插件的引导行。
+ * 编辑器：指向同作者另一个插件的引导行。
  *
  * 一行说明 + 一个按钮：装了目标插件就直接打开它的设置面板，没装就去集市里它的详情页。
  * 它不读写任何配置、没有任何运行期行为，所以显式声明「永不挂载」，
@@ -13,7 +13,7 @@ import {
 
 export default defineFeature({
     id: "ref-crumbs-guide",
-    category: "ui",
+    category: "editor",
     name: "feature.refCrumbsGuide.name",
     description: "feature.refCrumbsGuide.desc",
     isEnabled: () => false,

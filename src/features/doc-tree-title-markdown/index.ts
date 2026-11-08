@@ -9,7 +9,7 @@ import {mountDocTreeTitleMarkdown} from "./render";
 
 export default defineFeature({
     id: "doc-tree-title-markdown",
-    category: "ui",
+    category: "doc-tree",
     name: "feature.docTreeTitleMarkdown.name",
     description: "feature.docTreeTitleMarkdown.desc",
     // 思源自己把文档标题存成行级 AST，并把它投影进文档树的标题元素

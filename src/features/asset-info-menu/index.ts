@@ -10,7 +10,7 @@ import {mountAssetInfoMenu} from "./info";
 
 export default defineFeature({
     id: "asset-info-menu",
-    category: "function",
+    category: "editor",
     name: "feature.assetInfoMenu.name",
     description: "feature.assetInfoMenu.desc",
     settings: [

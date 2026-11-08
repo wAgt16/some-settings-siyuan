@@ -14,7 +14,7 @@ import {mountPanelNoAutofocus} from "./focus";
 
 export default defineFeature({
     id: "panel-no-autofocus",
-    category: "ui",
+    category: "appearance",
     name: "feature.panelNoAutofocus.name",
     description: "feature.panelNoAutofocus.desc",
     settings: [

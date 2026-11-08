@@ -10,7 +10,7 @@ import {mountOssUsage} from "./usage";
 
 export default defineFeature({
     id: "oss-usage",
-    category: "function",
+    category: "settings",
     name: "feature.ossUsage.name",
     description: "feature.ossUsage.desc",
     settings: [

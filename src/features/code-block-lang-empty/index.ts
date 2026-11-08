@@ -16,7 +16,7 @@ import {mountCodeBlockLangEmpty} from "./codelang";
 
 export default defineFeature({
     id: "code-block-lang-empty",
-    category: "function",
+    category: "editor",
     name: "feature.codeBlockLangEmpty.name",
     description: "feature.codeBlockLangEmpty.desc",
     settings: [

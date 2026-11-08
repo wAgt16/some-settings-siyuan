@@ -13,7 +13,7 @@ import {mountHideAgentWelcomeExamples} from "./style";
 
 export default defineFeature({
     id: "hide-agent-welcome-examples",
-    category: "ui",
+    category: "ai",
     name: "feature.hideAgentWelcomeExamples.name",
     description: "feature.hideAgentWelcomeExamples.desc",
     settings: [

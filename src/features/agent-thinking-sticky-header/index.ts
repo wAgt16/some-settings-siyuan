@@ -30,7 +30,7 @@ import {mountAgentThinkingStickyHeader} from "./style";
 
 export default defineFeature({
     id: "agent-thinking-sticky-header",
-    category: "ui",
+    category: "ai",
     name: "feature.agentThinkingStickyHeader.name",
     description: "feature.agentThinkingStickyHeader.desc",
     // 思源自己已经把标题吸顶与「折叠后把卡片顶沿对回上沿」都做了

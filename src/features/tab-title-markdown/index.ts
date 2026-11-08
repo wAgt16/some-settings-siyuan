@@ -10,7 +10,7 @@ import {mountTabTitleMarkdown} from "./render";
 
 export default defineFeature({
     id: "tab-title-markdown",
-    category: "ui",
+    category: "doc-tree",
     name: "feature.tabTitleMarkdown.name",
     description: "feature.tabTitleMarkdown.desc",
     // 思源自己把文档标题存成行级 AST，并把它投影进桌面页签条、移动端页签概览与大纲

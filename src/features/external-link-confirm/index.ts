@@ -6,7 +6,7 @@ import {mountExternalLinkConfirm} from "./confirm";
 
 export default defineFeature({
     id: "external-link-confirm",
-    category: "function",
+    category: "editor",
     name: "feature.externalLinkConfirm.name",
     description: "feature.externalLinkConfirm.desc",
     settings: [

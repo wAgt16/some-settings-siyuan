@@ -14,10 +14,41 @@ import type {
     IPluginDockTab,
 } from "siyuan";
 
-/** 设置项分类，对应设置面板里的三个小节标题（不是页签）。 */
-export type FeatureCategory = "function" | "ui" | "about";
+/**
+ * 设置项分类：按功能**作用到的思源原生功能**划分，一个分类就是设置面板里的一个页签。
+ *
+ * 刻意不保留「功能 / 界面 / 关于」这种从插件视角出发的划分：它把同一块原生界面的设置
+ * 拆到不同页签里（例如文档树的强调色在「界面」、文档树标题的 Markdown 也在「界面」，
+ * 而文档树的图标却在「功能」），用户想找一个设置只能通读三个页签。按原生功能区划分后，
+ * 「我要改文档树」这件事在同一个页签里就能办完。
+ *
+ * - ai：智能体面板与人工智能设置
+ * - editor：正文编辑、资源与录音
+ * - doc-tree：文档树、页签与文档图标
+ * - appearance：弹窗、栏体、侧栏等界面外观
+ * - connection：内核连接
+ * - settings：思源的设置页与集市
+ * - plugin：本插件自身的维护与说明
+ */
+export type FeatureCategory =
+    | "ai"
+    | "editor"
+    | "doc-tree"
+    | "appearance"
+    | "connection"
+    | "settings"
+    | "plugin";
 
-export const FEATURE_CATEGORIES: FeatureCategory[] = ["function", "ui", "about"];
+/** 页签顺序：面板照这份数组渲染，没内容的不出现。 */
+export const FEATURE_CATEGORIES: FeatureCategory[] = [
+    "ai",
+    "editor",
+    "doc-tree",
+    "appearance",
+    "connection",
+    "settings",
+    "plugin",
+];
 
 /**
  * 功能适用的前端。

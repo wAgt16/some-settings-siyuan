@@ -14,7 +14,7 @@ import {mountMobileSelectNative} from "./select";
 
 export default defineFeature({
     id: "mobile-select-native",
-    category: "ui",
+    category: "appearance",
     name: "feature.mobileSelectNative.name",
     description: "feature.mobileSelectNative.desc",
     frontends: ["mobile"],

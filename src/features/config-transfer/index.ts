@@ -16,7 +16,7 @@ import {
 
 export default defineFeature({
     id: "config-transfer",
-    category: "about",
+    category: "plugin",
     name: "feature.configTransfer.name",
     description: "feature.configTransfer.desc",
     isEnabled: () => false,

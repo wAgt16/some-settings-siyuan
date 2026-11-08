@@ -18,7 +18,7 @@ import {mountSnippetHighlight} from "./highlight";
 
 export default defineFeature({
     id: "code-snippet-highlight",
-    category: "ui",
+    category: "settings",
     name: "feature.codeSnippetHighlight.name",
     description: "feature.codeSnippetHighlight.desc",
     settings: [

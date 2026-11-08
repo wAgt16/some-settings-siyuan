@@ -13,7 +13,7 @@ import {mountHideMobileExit} from "./style";
 
 export default defineFeature({
     id: "hide-mobile-exit",
-    category: "ui",
+    category: "appearance",
     name: "feature.hideMobileExit.name",
     description: "feature.hideMobileExit.desc",
     frontends: ["mobile"],
