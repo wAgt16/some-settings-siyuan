@@ -77,10 +77,10 @@ Categories follow the native SiYuan feature each setting affects, and match the 
 
 ### Connection and kernel
 
-| Setting                                                 | Applies to | What it does                                                                                                      |
-| ------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------- |
-| Reconnect button on the disconnect panel (experimental) | both       | Adds a _Reconnect now_ button to the kernel-disconnected panel                                                    |
-| Automatic reconnect after a disconnect (experimental)   | both       | Probes the kernel on its own schedule while disconnected and reloads as soon as it answers (2 × 500ms by default) |
+| Setting                                  | Applies to | What it does                                                                                                      |
+| ---------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------- |
+| Reconnect button on the disconnect panel | both       | Adds a _Reconnect now_ button to the kernel-disconnected panel                                                    |
+| Automatic reconnect after a disconnect   | both       | Probes the kernel on its own schedule while disconnected and reloads as soon as it answers (2 × 500ms by default) |
 
 ### Settings and marketplace
 
