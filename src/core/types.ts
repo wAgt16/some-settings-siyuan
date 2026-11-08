@@ -58,21 +58,6 @@ export const FEATURE_CATEGORIES: FeatureCategory[] = [
  */
 export type FeatureFrontend = "desktop" | "mobile";
 
-/**
- * feature-control.json 中每个 id 的四态开关。
- *
- * - 0: 该功能不加载已有配置，前端不显示
- * - 1: 该功能加载已有配置，前端显示并可设置
- * - 2: 该功能加载已有配置，前端不显示
- * - 3: 该功能不加载已有配置，前端显示并可设置
- */
-export enum ControlState {
-    Disabled = 0,
-    Enabled = 1,
-    Hidden = 2,
-    ConfigurationOnly = 3,
-}
-
 /** 每个功能的配置值。字符串 key 与 SettingField.key 一一对应。 */
 export type FeatureConfig = Record<string, unknown>;
 
@@ -118,8 +103,9 @@ export interface FeatureActionContext {
     updateConfig(featureId: string, patch: FeatureConfig): Promise<void>;
     /**
      * 清除本插件存储目录（`data/storage/petal/<插件名>/`）下的全部配置文件：
-     * 逐个删除、回落默认值并通知各功能。目标是目录里的文件，与四态、当前前端是否适用、
-     * 功能是否已退役都无关。有任何一个文件删不掉就抛出（附 problems），不允许静默通过。
+     * 逐个删除、回落默认值并通知各功能。目标是目录里的文件，与功能声明是否启用、
+     * 当前前端是否适用、功能是否已退役都无关。有任何一个文件删不掉就抛出（附 problems），
+     * 不允许静默通过。
      */
     clearAllConfigs(): Promise<void>;
     /** 导出存储目录下全部配置文件的当前内容，键是功能 id。 */
@@ -218,7 +204,7 @@ export type SettingField =
 export interface FeatureHost {
     readonly plugin: Plugin;
     readonly id: string;
-    /** 已经按四态处理过的当前配置。 */
+    /** 已经按 schema 归一化过的当前配置。 */
     readonly config: FeatureConfig;
     /** 插件卸载时 abort，功能应据此取消异步工作。 */
     readonly signal: AbortSignal;
@@ -276,22 +262,38 @@ export interface FeatureInstance {
 
 /** 每个功能文件夹 index.ts 的默认导出。 */
 export interface FeatureDefinition {
-    /** 必须等于功能文件夹名，也等于 feature-control.json 里的 key。 */
+    /** 必须等于功能文件夹名，也等于它自己的配置文件名（`feature-<id>`）。 */
     id: string;
     category: FeatureCategory;
     /** i18n key，不是字面量。 */
     name: string;
     description?: string;
+    /**
+     * 这个功能是否随插件一起交出：`false` 表示不加载它的配置、不在设置面板里出现、
+     * 也不挂载（代码仍然在包里，只是不起作用）。
+     *
+     * 它只表达「这个功能还要不要」，**不是**用户那个「启用 / 关闭」开关：
+     * 用户开关仍由功能自己的 `enabled` 设置项或 `isEnabled` 谓词决定，默认关闭。
+     * 想要彻底退场（上游已原生实现）不要用它，用 `maxAppVersion`。
+     */
+    enabled: boolean;
     /** 不写表示桌面端与移动端都适用。 */
     frontends?: FeatureFrontend[];
     /**
-     * 从该思源版本起，上游的原生实现已经取代本功能：插件不再加载它的配置、
-     * 不再在设置面板里显示它、也不再挂载。写法与思源版本号一致（如 "3.8.7-alpha.2"），
-     * 按 semver 比较，预发布版本小于同号正式版。
+     * 支持该功能的最低思源版本（含）。不写表示不限下限。
      *
-     * 只用于「上游自己做了」的功能退役，不要拿它当普通的兼容性开关。
+     * 写法与思源版本号一致（如 `"3.8.7-alpha.2"`），按 semver 比较：
+     * `alpha < beta < rc < 正式版`，同一段预发布内部数字越大越新。
      */
-    deprecatedSince?: string;
+    minAppVersion?: string;
+    /**
+     * 支持该功能的最高思源版本（含）。不写表示不限上限。
+     *
+     * 用于「上游自己实现了」的退场：宿主版本一旦超过这个值，插件就不再加载它的配置、
+     * 不再在设置面板里显示它、也不再挂载。若上游从 `3.8.10-alpha.2` 起已经实现，
+     * 这里就写它的前一个版本 `"3.8.10-alpha.1"`。
+     */
+    maxAppVersion?: string;
     settings: SettingField[];
     /**
      * 该功能此刻是否应当运行。
@@ -300,7 +302,7 @@ export interface FeatureDefinition {
      * 才需要自己声明，例如用一个 `select` 的「禁用」选项当开关的功能。
      */
     isEnabled?(config: FeatureConfig): boolean;
-    /** 仅在 mountEnabled 为真、且 isEnabled 为真时调用。 */
+    /** 仅在功能生效（activeFeatures）且 isEnabled 为真时调用。 */
     mount?(host: FeatureHost): FeatureInstance | void;
 }
 

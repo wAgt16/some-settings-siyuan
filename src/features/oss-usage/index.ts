@@ -11,6 +11,7 @@ import {mountOssUsage} from "./usage";
 export default defineFeature({
     id: "oss-usage",
     category: "settings",
+    enabled: true,
     name: "feature.ossUsage.name",
     description: "feature.ossUsage.desc",
     settings: [

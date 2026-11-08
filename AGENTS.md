@@ -8,7 +8,7 @@
 ## 1. 项目性质
 
 一个**「可独立启停的设置项集合」**插件：每个设置项有自己的文件夹、自己的 JSON 配置文件，
-可以单独启用、禁用、隐藏、重置，**不需要改一行源码**。
+可以单独启用、禁用或重置，**不需要改一行源码**。
 
 ---
 
@@ -16,38 +16,38 @@
 
 * `src/core/` 只放机制，不放业务逻辑；`src/features/<id>/` 一个功能一个目录，`index.ts` 只做声明。
 * 功能之间**零 import**，只依赖 `core/`。
-* 不要直接改 `src/` 之外的东西来实现功能；`feature-control.json` 是数据配置，不是代码。
+* 不要直接改 `src/` 之外的东西来实现功能；功能要不要交出、支持哪些思源版本，全部写在各自的
+  `index.ts` 声明里，没有第二份清单。
 
 ---
 
-## 3. 四态与开关
+## 3. 声明与开关
 
-`feature-control.json` 的 `state` 只决定**加不加载已有配置**与**面板显不显示**；功能**跑不跑**
-由它自己的开关决定。这两件事必须分开，不要用 `state` 表达「功能开没开」。
+`index.ts` 的顶层 `enabled` 只决定**这个功能还要不要**（不加载配置、不进面板、不挂载）；
+功能**跑不跑**由它自己的开关决定。这两件事必须分开，不要用 `enabled` 表达「用户开没开」。
 
-| `state` | 加载已有配置 | 面板显示 | 允许运行 |
-| ------- | ------------ | -------- | -------- |
-| `0`     | 否           | 否       | 否       |
-| `1`     | 是           | 是       | 是       |
-| `2`     | 是           | 否       | 是       |
-| `3`     | 否           | 是       | 是       |
+| 声明             | 加载已有配置 | 面板显示 | 允许运行                   |
+| ---------------- | ------------ | -------- | -------------------------- |
+| `enabled: true`  | 是           | 是       | 是，再受功能自己的开关约束 |
+| `enabled: false` | 否           | 否       | 否                         |
 
-* 缺失 key、非法值、未知 id 一律按 `0`，只告警一次。
-* `state` 约束「读取」，不约束「写入」：`0` / `3` 的功能不读盘，但用户在面板里保存的值照样写进它自己的 JSON。
+* `enabled` 必须显式写 `true` / `false`，缺失由 `npm run check` 拦下。
 * 每个功能的第一个设置项是**默认关闭**的开关（`key: "enabled"`、`default: false`），后面的控件才是参数。
-  例外：需求本身就是「用一个 selector 当开关」的功能不额外加开关，改声明 `isEnabled(config)` 谓词；
-  `state: 2` 的功能面板里没有开关可点，按「已允许运行」处理。
+  例外：需求本身就是「用一个 selector 当开关」的功能不额外加开关，改声明 `isEnabled(config)` 谓词。
 * 保存开关后立即挂载或**完整卸载**该功能，不需要重载插件。
-* 上游自己实现了某个能力后，功能必须能退场：声明 `deprecatedSince: "<思源版本>"`，从该版本起
-  不加载、不显示、不挂载。
+* 上游自己实现了某个能力后，功能必须能退场：声明 `maxAppVersion: "<前一个思源版本>"`，
+  宿主版本超过它就不再加载、不显示、不挂载。`minAppVersion` / `maxAppVersion` 都是**闭区间**，
+  不写表示该侧不限；版本号按 `alpha < beta < rc < 正式版` 比较。
 
 **推论（很重要）**：功能关着时根本不会被挂载，所以不能用 `addTopBar` / `addDock` / `addTab` /
 `addCommand` 这类必须在 onload 同步注册的 API；真要用就把 `mount` 写成无条件执行、内部按开关收放。
 `addProtyleSlash` 是例外：宿主每次打开斜杠菜单才读数组，mount 后动态增删安全。
 
 **新增功能**：建 `src/features/<id>/`（id 只用小写字母、数字、连字符）→ `defineFeature` 里
-`name` / `description` 是 **i18n key** 而不是字面量 → 在 `registry.ts` 登记（数组顺序即面板顺序）→
-在 `feature-control.json` 补 id 与 state → 两份 i18n 补齐 key → `npm run check && npm run typecheck && npm run lint`。
+`name` / `description` 是 **i18n key** 而不是字面量，分类取本文件与 `core/types.ts` 列出的原生功能区，
+`enabled` 按是否需要交出写 `true`，需要限定思源版本时补 `minAppVersion` / `maxAppVersion` →
+在 `registry.ts` 登记（数组顺序即面板顺序）→ 两份 i18n 补齐 key →
+`npm run check && npm run typecheck && npm run lint`。
 
 ---
 

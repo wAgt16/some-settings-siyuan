@@ -15,6 +15,7 @@ import {mountMobileSyncButton} from "./sync";
 export default defineFeature({
     id: "mobile-sync-button",
     category: "appearance",
+    enabled: true,
     name: "feature.mobileSyncButton.name",
     description: "feature.mobileSyncButton.desc",
     frontends: ["mobile"],

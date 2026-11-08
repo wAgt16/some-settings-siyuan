@@ -9,7 +9,7 @@
  * 桌面端是最准的；移动端与浏览器访问远程内核时拿到的是**服务这份前端的那一端**的版本，
  * 而这正是需要的答案——前端来自哪个版本，决定它有没有这份原生实现。
  *
- * 判定失败（读不到或认不出）时一律按「还没废弃」处理，并只告警一次：
+ * 判定失败（读不到或认不出）时一律按「没有限制」处理，并只告警一次：
  * 在需要这份补丁的旧版本上把它藏起来，比让它多显示一项糟糕得多。
  */
 import type {FeatureDefinition} from "./types";
@@ -89,29 +89,66 @@ export const hostVersion = (): HostVersion | undefined => {
 /** 判定失败的告警去重表：同一个功能只提示一次。 */
 const warned = new Set<string>();
 
+const warnOnce = (key: string, message: string): void => {
+    if (warned.has(key)) {
+        return;
+    }
+    warned.add(key);
+    console.warn(`${PREFIX} ${message}`);
+};
+
 /**
- * 该功能在当前宿主上是否仍然需要。
+ * 该功能在当前宿主上是否仍然适用。
  *
- * 没声明 `deprecatedSince` 的功能恒为真；声明了则要求宿主版本低于它 ——
- * 到那个版本（含）为止，上游已经自己实现了。
+ * 两个边界都是**含**的：`minAppVersion` 要求宿主版本不低于它，`maxAppVersion` 要求不高于它。
+ * 不写的一侧等于不限。边界写法认不出、或宿主版本读不到时，这一侧按「不限」处理并只告警一次。
  */
 export const supportsCurrentHost = (definition: FeatureDefinition): boolean => {
-    const since = definition.deprecatedSince;
-    if (!since) {
+    const {minAppVersion, maxAppVersion} = definition;
+    if (!minAppVersion && !maxAppVersion) {
         return true;
     }
-    const declared = parseVersion(since);
     const current = hostVersion();
-    if (!declared || !current) {
-        if (!warned.has(definition.id)) {
-            warned.add(definition.id);
-            console.warn(
-                `${PREFIX} cannot tell whether "${definition.id}" is obsolete: the host reports kernelVersion ${
-                    JSON.stringify(window.siyuan?.config?.system?.kernelVersion)
-                } and it would be obsolete since ${JSON.stringify(since)}, keeping the feature available`,
-            );
-        }
+    if (!current) {
+        warnOnce(
+            `host:${definition.id}`,
+            `cannot tell whether "${definition.id}" fits this host: it reports kernelVersion ${
+                JSON.stringify(window.siyuan?.config?.system?.kernelVersion)
+            }, so the declared range ${JSON.stringify({minAppVersion, maxAppVersion})} is ignored`,
+        );
         return true;
     }
-    return compareVersion(current, declared) < 0;
+    return withinMinimum(definition, current) && withinMaximum(definition, current);
+};
+
+const withinMinimum = (definition: FeatureDefinition, current: HostVersion): boolean => {
+    const declared = definition.minAppVersion;
+    if (!declared) {
+        return true;
+    }
+    const bound = parseVersion(declared);
+    if (!bound) {
+        warnOnce(
+            `min:${definition.id}`,
+            `"${definition.id}" declares an unreadable minAppVersion ${JSON.stringify(declared)}, ignoring it`,
+        );
+        return true;
+    }
+    return compareVersion(current, bound) >= 0;
+};
+
+const withinMaximum = (definition: FeatureDefinition, current: HostVersion): boolean => {
+    const declared = definition.maxAppVersion;
+    if (!declared) {
+        return true;
+    }
+    const bound = parseVersion(declared);
+    if (!bound) {
+        warnOnce(
+            `max:${definition.id}`,
+            `"${definition.id}" declares an unreadable maxAppVersion ${JSON.stringify(declared)}, ignoring it`,
+        );
+        return true;
+    }
+    return compareVersion(current, bound) <= 0;
 };

@@ -19,6 +19,7 @@ import {mountMobileBlockIconAlways} from "./gutter";
 export default defineFeature({
     id: "mobile-block-icon-always",
     category: "appearance",
+    enabled: true,
     name: "feature.mobileBlockIconAlways.name",
     description: "feature.mobileBlockIconAlways.desc",
     frontends: ["mobile"],

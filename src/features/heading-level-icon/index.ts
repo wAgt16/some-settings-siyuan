@@ -10,6 +10,7 @@ import {mountHeadingLevelIcon} from "./level";
 export default defineFeature({
     id: "heading-level-icon",
     category: "editor",
+    enabled: true,
     name: "feature.headingLevelIcon.name",
     description: "feature.headingLevelIcon.desc",
     settings: [

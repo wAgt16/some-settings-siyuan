@@ -13,6 +13,7 @@ import {mountMobileDocTreeTitleSize} from "./style";
 export default defineFeature({
     id: "mobile-doc-tree-title-size",
     category: "doc-tree",
+    enabled: true,
     name: "feature.mobileDocTreeTitleSize.name",
     description: "feature.mobileDocTreeTitleSize.desc",
     frontends: ["mobile"],

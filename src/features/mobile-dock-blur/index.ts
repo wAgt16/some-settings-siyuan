@@ -14,6 +14,7 @@ import {mountMobileDockBlur} from "./style";
 export default defineFeature({
     id: "mobile-dock-blur",
     category: "appearance",
+    enabled: true,
     name: "feature.mobileDockBlur.name",
     description: "feature.mobileDockBlur.desc",
     frontends: ["mobile"],

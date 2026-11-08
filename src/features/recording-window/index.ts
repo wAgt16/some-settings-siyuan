@@ -11,6 +11,7 @@ import {mountRecordingWindow} from "./window";
 export default defineFeature({
     id: "recording-window",
     category: "editor",
+    enabled: true,
     name: "feature.recordingWindow.name",
     description: "feature.recordingWindow.desc",
     settings: [

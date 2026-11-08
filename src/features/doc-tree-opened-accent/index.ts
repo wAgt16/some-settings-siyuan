@@ -13,6 +13,7 @@ import {mountDocTreeOpenedAccent} from "./style";
 export default defineFeature({
     id: "doc-tree-opened-accent",
     category: "doc-tree",
+    enabled: true,
     name: "feature.docTreeOpenedAccent.name",
     description: "feature.docTreeOpenedAccent.desc",
     settings: [

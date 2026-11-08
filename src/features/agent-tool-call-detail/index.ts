@@ -18,6 +18,7 @@ import {mountAgentToolCallDetail} from "./detail";
 export default defineFeature({
     id: "agent-tool-call-detail",
     category: "ai",
+    enabled: true,
     name: "feature.agentToolCallDetail.name",
     description: "feature.agentToolCallDetail.desc",
     settings: [

@@ -17,6 +17,7 @@ import {
 export default defineFeature({
     id: "mobile-console-log",
     category: "plugin",
+    enabled: true,
     name: "feature.mobileConsoleLog.name",
     description: "feature.mobileConsoleLog.desc",
     frontends: ["mobile"],

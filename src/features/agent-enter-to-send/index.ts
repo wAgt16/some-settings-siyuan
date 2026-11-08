@@ -11,6 +11,7 @@ import {mountAgentEnterToSend} from "./enter";
 export default defineFeature({
     id: "agent-enter-to-send",
     category: "ai",
+    enabled: true,
     name: "feature.agentEnterToSend.name",
     description: "feature.agentEnterToSend.desc",
     settings: [

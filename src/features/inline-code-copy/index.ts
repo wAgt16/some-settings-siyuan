@@ -14,6 +14,7 @@ import {mountInlineCodeCopy} from "./copy";
 export default defineFeature({
     id: "inline-code-copy",
     category: "editor",
+    enabled: true,
     name: "feature.inlineCodeCopy.name",
     description: "feature.inlineCodeCopy.desc",
     isEnabled: (config) => config.mode !== "off",

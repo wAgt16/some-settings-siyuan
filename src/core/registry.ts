@@ -104,13 +104,14 @@ export const FEATURES: FeatureDefinition[] = [
 export const ALL_FEATURE_IDS: string[] = FEATURES.map((feature) => feature.id);
 
 /**
- * 本宿主上仍然生效的功能：适用于当前前端，且宿主还没有原生实现它。
+ * 本宿主上仍然生效的功能：声明里 enabled 为真、适用于当前前端，且宿主版本落在
+ * 它声明的支持区间里。
  *
  * 配置装载与设置面板都只认这份清单 —— 判定必须只有一处，
  * 否则会出现「面板里显示了、但功能没挂载」这种两边不一致的状态。
  */
 export const activeFeatures = (): FeatureDefinition[] =>
-    FEATURES.filter((feature) => supportsCurrentFrontend(feature) && supportsCurrentHost(feature));
+    FEATURES.filter((feature) => feature.enabled && supportsCurrentFrontend(feature) && supportsCurrentHost(feature));
 
 export const featureById = (id: string): FeatureDefinition | undefined => FEATURES.find((feature) => feature.id === id);
 

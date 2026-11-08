@@ -15,6 +15,9 @@ import {mountPanelNoAutofocus} from "./focus";
 export default defineFeature({
     id: "panel-no-autofocus",
     category: "appearance",
+    // 暂不交出：思源桌面端启用独立设置窗口后，对思源自己的设置窗口不再生效，
+    // 只有本插件的面板还管得住，留着开关反而误导用户。代码保留，等这条限制消失再打开。
+    enabled: false,
     name: "feature.panelNoAutofocus.name",
     description: "feature.panelNoAutofocus.desc",
     settings: [

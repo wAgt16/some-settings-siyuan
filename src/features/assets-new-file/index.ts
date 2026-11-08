@@ -10,6 +10,7 @@ import {mountAssetsNewFile} from "./mount";
 export default defineFeature({
     id: "assets-new-file",
     category: "editor",
+    enabled: true,
     name: "feature.assetsNewFile.name",
     description: "feature.assetsNewFile.desc",
     settings: [

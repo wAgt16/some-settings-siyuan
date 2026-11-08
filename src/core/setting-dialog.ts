@@ -26,7 +26,6 @@ import {
 } from "siyuan";
 import type {Plugin} from "siyuan";
 import type {ConfigStore} from "./config";
-import type {ControlSnapshot} from "./control";
 import {
     guardAsync,
     guardSilent,
@@ -63,20 +62,10 @@ import {
     textRowHtml,
 } from "./ui";
 
-export type { ControlSnapshot } from "./control";
-
 const CATEGORY_ORDER: FeatureCategory[] = FEATURE_CATEGORIES;
 
-/** 页签文案。分类 id 就是 i18n key 的后半段，两边只在这里对齐一次。 */
-const CATEGORY_LABELS: Record<FeatureCategory, string> = {
-    ai: "category.ai",
-    editor: "category.editor",
-    "doc-tree": "category.docTree",
-    appearance: "category.appearance",
-    connection: "category.connection",
-    settings: "category.settings",
-    plugin: "category.plugin",
-};
+/** 分类文案的 i18n key：与分类 id 一一对应，`npm run check` 会校验两份语言文件都有。 */
+const categoryLabelKey = (category: FeatureCategory): string => `category.${category}`;
 
 /** 页签条目上表示「当前选中」的类名：桌面端与移动端各一个。 */
 const TAB_FOCUS_CLASSES = ["b3-list-item--focus", "item--focus"];
@@ -101,7 +90,6 @@ export interface SettingsPanelOptions {
     plugin: Plugin;
     store: ConfigStore;
     features: FeatureDefinition[];
-    controlOf: (id: string) => ControlSnapshot;
 }
 
 const isReadonly = (): boolean => Boolean(window.siyuan?.config?.readonly || window.siyuan?.isPublish);
@@ -373,11 +361,11 @@ export class SettingsPanel {
     // ------------------------------------------------------------ 渲染
 
     /**
-     * 面板里会出现的全部功能：只看 showUi。
-     * 前端与宿主版本的判定已经由 activeFeatures() 统一做过，这里不重复判定。
+     * 面板里会出现的全部功能。
+     * 前端、宿主版本与 `enabled` 声明已经由 activeFeatures() 统一筛过，这里不重复判定。
      */
     private visibleFeaturesAll(): FeatureDefinition[] {
-        return this.options.features.filter((feature) => this.options.controlOf(feature.id).showUi);
+        return this.options.features;
     }
 
     private render(): void {
@@ -448,7 +436,7 @@ export class SettingsPanel {
             // 页签只在这里出现一次：顺序、文案与图标都由这一处决定，默认打开第一个有内容的页签
             tabs.push({
                 id: category,
-                label: this.t(CATEGORY_LABELS[category], category),
+                label: this.t(categoryLabelKey(category), category),
                 icon: CATEGORY_ICONS[category],
             });
             panes.push(tabPaneHtml(category, markLastRow(rows.join("")), tabs.length === 1));

@@ -3,13 +3,13 @@
  *
  * 存储路径由宿主决定：/data/storage/petal/<插件名>/<storageName>。
  * 一个功能一个文件，这样「重置某个功能」不会影响其他功能，
- * 也符合四态里「是否加载已有配置」的粒度。
+ * 也符合「一个功能一个开关」的粒度。
  *
  * 所有读写都走 plugin.loadData / saveData / removeData，
  * 绝不直接调用 fs 或 Node API（官方开发规范要求）。
  *
  * 导出 / 导入 / 清除这三个动作按**目录里的文件**来，不按代码里注册的功能来：
- * 四态、前端适配、是否已退役只决定功能加不加载，退役的、甚至已经从插件里删掉的
+ * 声明里的 `enabled`、前端适配、版本区间只决定功能加不加载，退役的、甚至已经从插件里删掉的
  * 功能留下的配置文件同样是本插件的配置（见 core/storage.ts）。
  */
 import type {Plugin} from "siyuan";
@@ -169,12 +169,11 @@ export const normalizeConfig = (
     return result;
 };
 
-/** 只要 schema 默认值，不读盘。四态中的 0 与 3 走这条路径。 */
+/** 只要 schema 默认值，不读盘。*/
 export const defaultConfig = (settings: SettingField[]): FeatureConfig => normalizeConfig(settings, {});
 
 interface Entry {
     definition: FeatureDefinition;
-    loadEnabled: boolean;
     config: FeatureConfig;
 }
 
@@ -187,22 +186,17 @@ export class ConfigStore {
         this.plugin = plugin;
     }
 
-    /** 用 schema 默认值建立内存态；loadEnabled 为真时才真正读盘。 */
-    async register(definition: FeatureDefinition, loadEnabled: boolean): Promise<FeatureConfig> {
-        const entry: Entry = {definition, loadEnabled, config: defaultConfig(definition.settings)};
+    /** 用 schema 默认值建立内存态，并读回磁盘上已有的配置。 */
+    async register(definition: FeatureDefinition): Promise<FeatureConfig> {
+        const entry: Entry = {definition, config: defaultConfig(definition.settings)};
         this.entries.set(definition.id, entry);
-        if (loadEnabled) {
-            await this.reload(definition.id);
-        } else {
-            // 上游 loadData 会把结果写进 plugin.data，残留会在会话内被误用，这里主动清掉
-            delete (this.plugin as unknown as {data: Record<string, unknown>;}).data[storageNameOf(definition.id)];
-        }
+        await this.reload(definition.id);
         return entry.config;
     }
 
     private async reload(id: string): Promise<void> {
         const entry = this.entries.get(id);
-        if (!entry || !entry.loadEnabled) {
+        if (!entry) {
             return;
         }
         let stored: unknown = null;
@@ -246,8 +240,7 @@ export class ConfigStore {
     /**
      * 立即写盘。
      *
-     * 注意：即使是四态里「不加载已有配置」的 0 / 3，也允许在用户显式保存后写盘——
-     * 「不加载」约束的是读取，不是让用户的修改凭空消失。
+     * 注意：只写这一个功能自己的文件，不牵动别的功能；磁盘与内存态在这一步一起更新。
      */
     async saveNow(id: string): Promise<void> {
         const entry = this.entries.get(id);
@@ -260,8 +253,8 @@ export class ConfigStore {
     /**
      * 目录里此刻有哪些配置文件。
      *
-     * 这是导出 / 导入 / 清除的共同入口：目标集合由磁盘决定，不受四态、前端适配与
-     * 是否退役影响。名字不合规的文件（不是本插件的配置）只告警，绝不按猜测去动它。
+     * 这是导出 / 导入 / 清除的共同入口：目标集合由磁盘决定，不受声明里的 enabled、
+     * 前端适配与版本区间影响。名字不合规的文件（不是本插件的配置）只告警，绝不按猜测去动它。
      * 列不出目录时抛出，绝不退化成「一个配置都没有」。
      */
     private async storedFiles(): Promise<{id: string; storageName: string;}[]> {
@@ -374,10 +367,10 @@ export class ConfigStore {
     }
 
     /**
-     * 清除存储目录下的全部配置文件（关于分类的「清除本插件配置」动作行使用）。
+     * 清除存储目录下的全部配置文件（「插件自身」分类里那个动作行使用）。
      *
-     * 清的是目录里的文件，不是代码里注册的功能：四态、前端适配、是否退役都只决定功能
-     * 加不加载，退役的、甚至已经从插件里删掉的功能留下的配置文件同样要清掉，
+     * 清的是目录里的文件，不是代码里注册的功能：声明里的 enabled、前端适配与版本区间
+     * 都只决定功能加不加载，退役的、甚至已经从插件里删掉的功能留下的配置文件同样要清掉，
      * 否则它们会一直躺在工作区里，谁也看不见、谁也删不掉。
      *
      * 删成功的文件对应把内存态回落默认值并通知订阅者，所以磁盘与内存在这一步就一致了；
@@ -409,10 +402,10 @@ export class ConfigStore {
     }
 
     /**
-     * 导出存储目录下的全部配置，键是功能 id（供关于类功能使用）。
+     * 导出存储目录下的全部配置，键是功能 id（供本插件自己的导入导出动作行使用）。
      *
-     * 读的是文件本身，不是内存里那份配置：四态 0 / 3 的功能不读盘（内存里是默认值），
-     * 当前客户端不加载的功能也根本没有内存态 —— 文件才是「配置到底是什么」的唯一依据。
+     * 读的是文件本身，不是内存里那份配置：当前客户端不加载的功能根本没有内存态，
+     * 因此写进文件的才是「配置到底是什么」的唯一依据。
      */
     async exportAll(): Promise<Record<string, FeatureConfig>> {
         const result: Record<string, FeatureConfig> = {};

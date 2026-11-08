@@ -10,13 +10,14 @@ import {mountDocTreeTitleMarkdown} from "./render";
 export default defineFeature({
     id: "doc-tree-title-markdown",
     category: "doc-tree",
+    enabled: true,
     name: "feature.docTreeTitleMarkdown.name",
     description: "feature.docTreeTitleMarkdown.desc",
-    // 思源自己把文档标题存成行级 AST，并把它投影进文档树的标题元素
+    // 思源从 3.8.10-alpha.2 起自己把文档标题存成行级 AST，并把它投影进文档树的标题元素
     // （`protyle/header/documentTitlePreview.ts` + `layout/dock/docTree/DocTreeController.ts`）。
-    // 标题里的行内格式从此由宿主负责，这份补丁在实现之后的那个预发布版退役：
-    // 从该版本起插件不再加载它的配置，设置面板里也不再出现这一项。
-    deprecatedSince: "3.8.10-alpha.2",
+    // 标题里的行内格式从此由宿主负责，所以上限取它的前一个版本：
+    // 到 3.8.10-alpha.1 为止这份补丁还有用，再往后插件不再加载它的配置、面板里也不再出现这一项。
+    maxAppVersion: "3.8.10-alpha.1",
     settings: [
         {
             kind: "switch",

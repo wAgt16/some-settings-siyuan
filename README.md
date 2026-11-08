@@ -2,7 +2,7 @@
 
 # Some Settings
 
-> A batch of **independently toggleable** SiYuan enhancements — every setting item can be enabled, disabled or hidden on its own.
+> A batch of **independently toggleable** SiYuan enhancements — every setting item can be enabled or disabled on its own.
 
 * Minimum SiYuan version: `3.8.6-alpha.4`
 * Environments: desktop, mobile, desktop window, browser; any backend

@@ -12,6 +12,7 @@ import {mountKernelAutoReconnect} from "./reconnect";
 export default defineFeature({
     id: "kernel-auto-reconnect",
     category: "connection",
+    enabled: true,
     name: "feature.kernelAutoReconnect.name",
     description: "feature.kernelAutoReconnect.desc",
     settings: [

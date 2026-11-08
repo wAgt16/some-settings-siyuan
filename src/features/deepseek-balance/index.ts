@@ -13,6 +13,7 @@ import {mountDeepseekBalance} from "./balance";
 export default defineFeature({
     id: "deepseek-balance",
     category: "ai",
+    enabled: true,
     name: "feature.deepseekBalance.name",
     description: "feature.deepseekBalance.desc",
     settings: [

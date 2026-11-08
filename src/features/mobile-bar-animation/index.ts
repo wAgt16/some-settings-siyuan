@@ -17,6 +17,7 @@ import {mountMobileBarAnimation} from "./style";
 export default defineFeature({
     id: "mobile-bar-animation",
     category: "appearance",
+    enabled: true,
     name: "feature.mobileBarAnimation.name",
     description: "feature.mobileBarAnimation.desc",
     frontends: ["mobile"],

@@ -1,10 +1,10 @@
 /**
- * feature-control.json 与功能注册表的一致性校验。
+ * 功能声明与注册表的一致性校验。
  *
  * 构建前跑（npm run build 会先执行 npm run check），一次报全所有问题，
- * 目的是让「改动 feature-control.json 就能禁用功能」这条路径始终可信：
- * 清单里写错一个 id，或者新功能忘了登记，都会在这里被拦住，而不是等到
- * 运行时静默按 0 处理、功能莫名消失。
+ * 目的是让「在 index.ts 里声明就能控制功能」这条路径始终可信：
+ * 少写 `enabled`、分类写错、版本区间写反、注册表漏登记，都会在这里被拦住，
+ * 而不是等到运行时静默失效、功能莫名消失。
  *
  * 用法：node scripts/check-features.mjs
  */
@@ -14,10 +14,8 @@ import {fileURLToPath} from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FEATURES_DIR = path.join(root, "src", "features");
-const CONTROL_FILE = path.join(root, "feature-control.json");
 const REGISTRY_FILE = path.join(root, "src", "core", "registry.ts");
 const I18N_DIR = path.join(root, "src", "i18n");
-const VALID_STATES = [0, 1, 2, 3];
 const VALID_CATEGORIES = ["ai", "editor", "doc-tree", "appearance", "connection", "settings", "plugin"];
 
 const problems = [];
@@ -32,33 +30,56 @@ const readJson = (file) => {
     }
 };
 
-// ---------------------------------------------------------------- 1. 清单结构
-const control = readJson(CONTROL_FILE);
-if (control !== null) {
-    if (typeof control.features !== "object" || control.features === null || Array.isArray(control.features)) {
-        fail("feature-control.json 缺少对象类型的 features 字段");
-    }
-}
+// ---------------------------------------------------------------- 版本号比较
+// 与 src/core/version.ts 同一套规则：x.y.z[-pre]，预发布版本小于同号正式版，
+// 预发布内部 alpha < beta < rc，纯数字段按数值比。
+const VERSION_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 
-const controlStates = new Map();
-if (control && typeof control.features === "object" && control.features !== null) {
-    for (const [id, entry] of Object.entries(control.features)) {
-        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
-            fail(`feature-control.json 中 "${id}" 的值必须是对象`);
+const parseVersion = (raw) => {
+    const match = VERSION_PATTERN.exec(raw.trim());
+    if (!match) {
+        return null;
+    }
+    return {
+        numbers: [Number(match[1]), Number(match[2]), Number(match[3])],
+        prerelease: match[4] ? match[4].split(".") : [],
+    };
+};
+
+const comparePrerelease = (a, b) => {
+    const shared = Math.min(a.length, b.length);
+    for (let index = 0; index < shared; index += 1) {
+        const left = a[index];
+        const right = b[index];
+        if (left === right) {
             continue;
         }
-        const state = entry.state;
-        if (!VALID_STATES.includes(state)) {
-            fail(`feature-control.json 中 "${id}" 的 state=${JSON.stringify(state)} 非法，合法值为 0/1/2/3`);
-            continue;
+        const leftNumber = /^\d+$/.test(left) ? Number(left) : undefined;
+        const rightNumber = /^\d+$/.test(right) ? Number(right) : undefined;
+        if (leftNumber !== undefined && rightNumber !== undefined) {
+            return leftNumber - rightNumber;
         }
-        controlStates.set(id, state);
+        if (leftNumber !== undefined || rightNumber !== undefined) {
+            return leftNumber !== undefined ? -1 : 1;
+        }
+        return left < right ? -1 : 1;
     }
-}
+    return a.length - b.length;
+};
 
-// ---------------------------------------------------------------- 2. 功能目录
-// 目录不存在是合法状态（功能被删光时 git 也留不住空目录），按"零个功能"处理；
-// 只有清单里还留着条目时，第 4 步才会把「找不到对应文件夹」报出来。
+const compareVersion = (a, b) => {
+    for (let index = 0; index < a.numbers.length; index += 1) {
+        if (a.numbers[index] !== b.numbers[index]) {
+            return a.numbers[index] - b.numbers[index];
+        }
+    }
+    if (a.prerelease.length === 0 || b.prerelease.length === 0) {
+        return b.prerelease.length - a.prerelease.length;
+    }
+    return comparePrerelease(a.prerelease, b.prerelease);
+};
+
+// ---------------------------------------------------------------- 功能目录
 const featureDirs = fs.existsSync(FEATURES_DIR) ?
     fs.readdirSync(FEATURES_DIR, {withFileTypes: true})
         .filter((entry) => entry.isDirectory())
@@ -91,8 +112,33 @@ for (const dir of featureDirs) {
     if (!VALID_CATEGORIES.includes(category)) {
         fail(`功能 "${id}" 的 category="${category}" 非法，合法值为 ${VALID_CATEGORIES.join("/")}`);
     }
-    if (!controlStates.has(id)) {
-        fail(`功能 "${id}" 没有在 feature-control.json 中登记（缺失会按 0 处理，功能不会显示）`);
+
+    // -------------------------------------------------- 1. enabled 声明
+    // 它是「这个功能随插件一起交不交出」，必须是明确的布尔量：
+    // 缺失或写成别的值都会让功能要么偷偷消失、要么在面板里露出来却没有实现。
+    const enabledMatch = /\benabled\s*:\s*([A-Za-z]+)\s*,/.exec(source);
+    if (!enabledMatch) {
+        fail(`功能 "${id}" 没有声明 enabled: true / false`);
+    } else if (enabledMatch[1] !== "true" && enabledMatch[1] !== "false") {
+        fail(`功能 "${id}" 的 enabled=${enabledMatch[1]} 非法，只能是 true 或 false`);
+    }
+
+    // -------------------------------------------------- 2. 版本区间
+    const versionOf = (field) => {
+        const match = new RegExp(`\\b${field}\\s*:\\s*"([^"]+)"`).exec(source);
+        if (!match) {
+            return null;
+        }
+        if (!parseVersion(match[1])) {
+            fail(`功能 "${id}" 的 ${field}="${match[1]}" 不是合法的思源版本号（形如 3.8.10-alpha.2）`);
+            return null;
+        }
+        return parseVersion(match[1]);
+    };
+    const min = versionOf("minAppVersion");
+    const max = versionOf("maxAppVersion");
+    if (min && max && compareVersion(min, max) > 0) {
+        fail(`功能 "${id}" 的 minAppVersion 高于 maxAppVersion，区间为空`);
     }
 
     // -------------------------------------------------- 3. settings 静态检查
@@ -172,14 +218,7 @@ for (const dir of featureDirs) {
     found.set(id, {dir, category, i18nKeys});
 }
 
-// ------------------------------------------------- 4. 清单里的多余条目
-for (const id of controlStates.keys()) {
-    if (!found.has(id)) {
-        fail(`feature-control.json 中的 "${id}" 没有对应的功能文件夹（src/features/${id}）`);
-    }
-}
-
-// ------------------------------------------------- 5. 注册表登记完整性
+// ------------------------------------------------- 4. 注册表登记完整性
 if (!fs.existsSync(REGISTRY_FILE)) {
     fail("找不到 src/core/registry.ts");
 } else {
@@ -193,7 +232,7 @@ if (!fs.existsSync(REGISTRY_FILE)) {
     }
 }
 
-// ------------------------------------------------- 6. i18n 覆盖
+// ------------------------------------------------- 5. i18n 覆盖
 const locales = fs.existsSync(I18N_DIR) ?
     fs.readdirSync(I18N_DIR).filter((name) => name.endsWith(".json")).sort() :
     [];
@@ -217,12 +256,21 @@ for (const [id, info] of found) {
     }
 }
 
+// ------------------------------------------------- 6. 分类文案
+for (const category of VALID_CATEGORIES) {
+    for (const [locale, data] of localeData) {
+        if (!(`category.${category}` in data)) {
+            fail(`分类 "${category}" 的文案 category.${category} 在 src/i18n/${locale} 中缺失`);
+        }
+    }
+}
+
 // ---------------------------------------------------------------- 输出
-const summary = `功能 ${found.size} 个，清单条目 ${controlStates.size} 条，语言文件 ${locales.length} 个`;
+const summary = `功能 ${found.size} 个，语言文件 ${locales.length} 个`;
 if (problems.length === 0) {
-    console.log(`✓ feature-control 校验通过（${summary}）`);
+    console.log(`✓ 功能声明校验通过（${summary}）`);
     process.exit(0);
 }
-console.error(`✗ feature-control 校验失败，共 ${problems.length} 个问题（${summary}）：`);
+console.error(`✗ 功能声明校验失败，共 ${problems.length} 个问题（${summary}）：`);
 problems.forEach((problem, index) => console.error(`  ${index + 1}. ${problem}`));
 process.exit(1);

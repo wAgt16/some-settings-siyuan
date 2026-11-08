@@ -15,14 +15,15 @@ import {mountMobileSelectNative} from "./select";
 export default defineFeature({
     id: "mobile-select-native",
     category: "appearance",
+    enabled: true,
     name: "feature.mobileSelectNative.name",
     description: "feature.mobileSelectNative.desc",
     frontends: ["mobile"],
     // 思源 v3.8.7-alpha.2 起自己统一了移动端下拉选择器（`mobile/util/nativeSelect.ts`，
     // 比这份补丁更完整：支持 optgroup、option 的 hidden/disabled 与键盘操作），
-    // 这份补丁在实现后的下一个预发布版（v3.8.7-alpha.3）退役：
-    // 从该版本起插件不再加载它的配置，设置面板里也不再出现这一项。
-    deprecatedSince: "3.8.7-alpha.3",
+    // 所以上限取它的前一个版本：到 v3.8.7-alpha.2 为止这份补丁还有用，
+    // 再往后插件不再加载它的配置，设置面板里也不再出现这一项。
+    maxAppVersion: "3.8.7-alpha.2",
     settings: [
         {
             kind: "switch",

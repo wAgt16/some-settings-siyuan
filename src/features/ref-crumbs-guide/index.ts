@@ -14,6 +14,7 @@ import {
 export default defineFeature({
     id: "ref-crumbs-guide",
     category: "editor",
+    enabled: true,
     name: "feature.refCrumbsGuide.name",
     description: "feature.refCrumbsGuide.desc",
     isEnabled: () => false,

@@ -1,5 +1,5 @@
 /**
- * 功能装载器：把「注册表 + feature-control.json 四态 + 配置存储 + 设置面板」串起来。
+ * 功能装载器：把「注册表 + 各功能的声明 + 配置存储 + 设置面板」串起来。
  *
  * 关键约束：
  * - addTopBar / addStatusBar / addDock / addTab 必须同步注册，所以 mount 全部在 onload 阶段跑；
@@ -17,18 +17,10 @@ import type {
 import {showMessage} from "siyuan";
 import {ConfigStore} from "./config";
 import {
-    controlOf,
-    controlSnapshot,
-    validateControl,
-} from "./control";
-import {
     guardSilent,
     reportError,
 } from "./error";
-import {
-    activeFeatures,
-    ALL_FEATURE_IDS,
-} from "./registry";
+import {activeFeatures} from "./registry";
 import {SettingsPanel} from "./setting-dialog";
 import {
     addStyle,
@@ -72,44 +64,33 @@ export class FeatureManager {
             plugin,
             store: this.store,
             features: activeFeatures(),
-            controlOf: (id) => controlSnapshot(id),
         });
     }
 
     /**
-     * 建立全部功能的配置内存态，并按四态 + 各功能自己的开关决定挂不挂载。
+     * 建立全部生效功能的配置内存态，并按各功能自己的开关决定挂不挂载。
      * 由插件在 onload 阶段调用一次。
      */
     async load(): Promise<void> {
-        validateControl(ALL_FEATURE_IDS);
+        // 不生效的功能（前端对不上、宿主版本超出支持区间、声明 enabled: false）根本不在
+        // activeFeatures() 里：既不会读配置、也不会出现在面板里、更不会挂载。
         for (const definition of activeFeatures()) {
-            const control = controlOf(definition.id);
-            // showUi 为真但 mountEnabled 为假（state 3）时也要有配置，才能显示和保存设置
-            const loadEnabled = control.loadEnabled;
             try {
-                await this.store.register(definition, loadEnabled);
+                await this.store.register(definition);
             } catch (error) {
                 reportError(`${definition.id}.config`, error);
                 continue;
             }
-            // 本宿主上不生效的功能（前端对不上、或已被思源原生实现取代）根本不在
-            // activeFeatures() 里：既不会读配置、也不会出现在面板里，这里只需再看不看开关。
-            if (!control.mountEnabled) {
-                continue;
-            }
-            // 面板里能看到开关的功能才受开关约束。state 2 没有开关可点，
-            // 若也要求 enabled 为真，它就变成了一个永远不工作的状态。
-            const gated = control.showUi;
-            this.syncMount(definition, gated);
+            this.syncMount(definition);
             // 面板一保存就立刻按新开关生效：打开即挂载、关闭即完整卸载，
             // 不需要为了关掉一个功能去重载插件。
-            this.store.subscribe(definition.id, () => this.syncMount(definition, gated));
+            this.store.subscribe(definition.id, () => this.syncMount(definition));
         }
     }
 
     /** 按「该不该运行」调整挂载状态；幂等。 */
-    private syncMount(definition: FeatureDefinition, gated: boolean): void {
-        const wanted = !gated || isEnabled(definition, this.store.get(definition.id));
+    private syncMount(definition: FeatureDefinition): void {
+        const wanted = isEnabled(definition, this.store.get(definition.id));
         const mounted = this.mounted.has(definition.id);
         if (wanted === mounted) {
             return;

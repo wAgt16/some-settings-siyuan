@@ -15,6 +15,7 @@ import {mountRefPanelHeight} from "./height";
 export default defineFeature({
     id: "mobile-ref-panel-height",
     category: "appearance",
+    enabled: true,
     name: "feature.mobileRefPanelHeight.name",
     description: "feature.mobileRefPanelHeight.desc",
     frontends: ["mobile"],

@@ -14,6 +14,7 @@ import {mountHideMobileExit} from "./style";
 export default defineFeature({
     id: "hide-mobile-exit",
     category: "appearance",
+    enabled: true,
     name: "feature.hideMobileExit.name",
     description: "feature.hideMobileExit.desc",
     frontends: ["mobile"],

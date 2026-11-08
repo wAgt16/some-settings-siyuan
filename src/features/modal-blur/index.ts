@@ -20,6 +20,7 @@ import {mountModalBlur} from "./style";
 export default defineFeature({
     id: "modal-blur",
     category: "appearance",
+    enabled: true,
     name: "feature.modalBlur.name",
     description: "feature.modalBlur.desc",
     settings: [

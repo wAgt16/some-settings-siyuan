@@ -16,6 +16,7 @@ import {mountLongpressMenuLabel} from "./label";
 export default defineFeature({
     id: "mobile-longpress-menu-label",
     category: "appearance",
+    enabled: true,
     name: "feature.mobileLongpressMenuLabel.name",
     description: "feature.mobileLongpressMenuLabel.desc",
     frontends: ["mobile"],
