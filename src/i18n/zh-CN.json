@@ -69,6 +69,8 @@
   "mobileBarAnimation.easingEmphasized": "强调（Material 风格）",
   "mobileBarAnimation.easingStandard": "标准",
   "mobileBarAnimation.easingLinear": "线性",
+  "feature.mobileDocTreeTitleSize.name": "移动端文档树标题字号回归 3.8.9",
+  "feature.mobileDocTreeTitleSize.desc": "思源 3.8.10 放大了移动端文档树的标题字号，本功能按 3.8.9 的比例缩回，并跟随思源自己的字体大小设置等比缩放。",
   "feature.mobileSyncButton.name": "移动端常显立即同步",
   "feature.mobileSyncButton.desc": "移动端右上角常显「立即同步」按钮。",
   "feature.hideMobileExit.name": "隐藏移动端退出应用按钮",

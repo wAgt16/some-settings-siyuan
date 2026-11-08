@@ -35,6 +35,7 @@ import kernelReconnectButton from "../features/kernel-reconnect-button";
 import mobileBarAnimation from "../features/mobile-bar-animation";
 import mobileBlockIconAlways from "../features/mobile-block-icon-always";
 import mobileConsoleLog from "../features/mobile-console-log";
+import mobileDocTreeTitleSize from "../features/mobile-doc-tree-title-size";
 import mobileDockBlur from "../features/mobile-dock-blur";
 import mobileLongpressMenuLabel from "../features/mobile-longpress-menu-label";
 import mobileRefPanelHeight from "../features/mobile-ref-panel-height";
@@ -70,6 +71,7 @@ export const FEATURES: FeatureDefinition[] = [
     headingLevelIcon,
     bazaarCustomIcon,
     mobileDockBlur,
+    mobileDocTreeTitleSize,
     mobileBarAnimation,
     mobileSyncButton,
     hideMobileExit,

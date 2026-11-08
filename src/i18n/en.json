@@ -69,6 +69,8 @@
   "mobileBarAnimation.easingEmphasized": "Emphasized (Material)",
   "mobileBarAnimation.easingStandard": "Standard",
   "mobileBarAnimation.easingLinear": "Linear",
+  "feature.mobileDocTreeTitleSize.name": "Mobile document tree title size back to 3.8.9",
+  "feature.mobileDocTreeTitleSize.desc": "SiYuan 3.8.10 enlarged the title text of the mobile document tree; this scales it back to the 3.8.9 proportion and keeps following SiYuan's own font size setting.",
   "feature.mobileSyncButton.name": "Always show Sync on mobile",
   "feature.mobileSyncButton.desc": "Keeps the Sync button visible in the mobile top-right corner.",
   "feature.hideMobileExit.name": "Hide the mobile Quit button",
