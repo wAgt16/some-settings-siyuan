@@ -62,21 +62,20 @@ Categories follow the native SiYuan feature each setting affects, and match the 
 
 ### Interface and appearance
 
-| Setting                                                    | Applies to | What it does                                                                                                                     |
-| ---------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Blur behind modals                                         | both       | Backdrop blur behind dialogs, so the editor underneath softens while the dialog stays sharp                                      |
-| Slimmer desktop command panel                              | desktop    | Shrinks the command panel to a share of SiYuan's native width (50% by default)                                                   |
-| Blur behind the mobile dock bar                            | mobile     | Backdrop blur behind the floating mobile dock bar                                                                                |
-| Smoother mobile bars                                       | mobile     | Smooth transition for the top bar, breadcrumb and dock bar show/hide; the dock bar only shows or hides as a whole                |
-| Taller mobile candidate panel                              | mobile     | Taller mobile candidate panel (including reference search), scaled to the viewport and never past the visible area               |
-| Always show Sync on mobile                                 | mobile     | Keeps Sync visible in the top-right corner; the click stays SiYuan's own sync guide                                              |
-| Native SiYuan style for mobile dropdowns                   | mobile     | Dropdowns use SiYuan's own menu instead of the WebView picker                                                                    |
-| Labels in the mobile long-press menu                       | mobile     | Adds text to the icon-only buttons in the mobile long-press menu (the back button stays an icon)                                 |
-| Keep the block icon visible on mobile                      | mobile     | Keeps the operated block's icon visible instead of letting it flicker                                                            |
-| Hide the mobile Quit button                                | mobile     | Hides the icon-only Quit button in the mobile side panel                                                                         |
-| Do not focus the first control when a settings panel opens | both       | Keeps a settings panel from focusing its first control when it opens: this plugin's panel and SiYuan's own settings dialog       |
-| Ask before quitting                                        | both       | Asks before SiYuan quits (the main menu's Quit and close-to-quit); a tray quit does not ask (disabled / desktop / mobile / both) |
-| F12 toggles the developer tools                            | desktop    | Opens or closes the developer tools with F12, the same entry as the one in the status bar context menu                           |
+| Setting                                  | Applies to | What it does                                                                                                                     |
+| ---------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Blur behind modals                       | both       | Backdrop blur behind dialogs, so the editor underneath softens while the dialog stays sharp                                      |
+| Slimmer desktop command panel            | desktop    | Shrinks the command panel to a share of SiYuan's native width (50% by default)                                                   |
+| Blur behind the mobile dock bar          | mobile     | Backdrop blur behind the floating mobile dock bar                                                                                |
+| Smoother mobile bars                     | mobile     | Smooth transition for the top bar, breadcrumb and dock bar show/hide; the dock bar only shows or hides as a whole                |
+| Taller mobile candidate panel            | mobile     | Taller mobile candidate panel (including reference search), scaled to the viewport and never past the visible area               |
+| Always show Sync on mobile               | mobile     | Keeps Sync visible in the top-right corner; the click stays SiYuan's own sync guide                                              |
+| Native SiYuan style for mobile dropdowns | mobile     | Dropdowns use SiYuan's own menu instead of the WebView picker                                                                    |
+| Labels in the mobile long-press menu     | mobile     | Adds text to the icon-only buttons in the mobile long-press menu (the back button stays an icon)                                 |
+| Keep the block icon visible on mobile    | mobile     | Keeps the operated block's icon visible instead of letting it flicker                                                            |
+| Hide the mobile Quit button              | mobile     | Hides the icon-only Quit button in the mobile side panel                                                                         |
+| Ask before quitting                      | both       | Asks before SiYuan quits (the main menu's Quit and close-to-quit); a tray quit does not ask (disabled / desktop / mobile / both) |
+| F12 toggles the developer tools          | desktop    | Opens or closes the developer tools with F12, the same entry as the one in the status bar context menu                           |
 
 ### Connection and kernel
 
