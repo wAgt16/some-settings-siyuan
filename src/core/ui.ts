@@ -311,7 +311,9 @@ export const noteRowHtml = (key: string, bodyHtml: string): string =>
  * - 文案只有两种角色：设置项名（标题，统一加粗）与说明（统一不加粗、更淡）
  * - 页签只有两套外观：桌面端照抄内核设置的左侧页签列表，
  *   移动端照抄内核代码片段弹窗的顶部页签栏（`.layout-tab-bar` 的样式由内核提供，
- *   这里只把它的底色让给弹窗容器，并去掉自己那圈圆角）
+ *   这里把底色换成弹窗容器的底色让页签栏能吸顶，并去掉自己那圈圆角）
+ * - 桌面端每一页自己滚动；移动端是宿主渲染的底部抽屉，整块按自然高度排版、
+ *   由宿主的内容区滚动，页签栏吸顶
  * - 窄屏（≤750px，与内核同一断点）把行内边距压到 8px 10px、页签内容压到 8px：
  *   内核给 .b3-label 的 16px 24px 在手机上会吃掉近一半屏宽，这是"边距特别大"的主因
  * 桌面端的行内边距与行间分割线完全交给内核 .b3-label，不做任何覆盖。
@@ -321,19 +323,25 @@ export const PANEL_CSS = `
     display: flex;
     height: 100%;
 }
-/* 移动端：顶部页签栏 + 内容，上下分栏 */
+/* 移动端：顶部页签栏 + 内容，上下分栏，且按内容自然高度排版。
+   宿主把 Setting 渲染成底部抽屉时，抽屉高度是「内容的自然高度」再按视口裁限，
+   所以这里绝不能写死高度（height: 100% 在自动高度的父级里会退化成 auto，
+   抽屉会塌成一条）；整块由宿主的内容区滚动，页签栏吸顶。 */
 .${PANEL_CLASS}--mobile {
     flex-direction: column;
+    height: auto;
 }
-/* 页签栏的底色必须是「窗口底色」，不能是内核给 .layout-tab-bar 的 --b3-theme-background：
-   弹窗容器的底色是 --b3-theme-surface，深色主题下 1e1e1e 与 2c2c2c、浅色主题下 fff 与 f6f6f6
-   都不一样，页签栏会变成标题下面一条明显的色带。做成透明，露出来的就是容器自己的底色，
-   深浅两种主题、以及主题改动容器底色时都自动一致。
-   同理不要圆角：内核代码片段弹窗的页签栏在弹窗最顶端，圆角与容器重合才需要它；
-   本面板上面还有标题栏，那圈圆角只会把容器底色从两个角上露出来。 */
+/* 页签栏吸顶后必须有底色遮住从它下面滚过的行。取 --b3-theme-surface，
+   与弹窗容器（含移动端底部抽屉）的底色完全一致；不能用内核给 .layout-tab-bar 的
+   --b3-theme-background：深色主题下 1e1e1e 与 2c2c2c、浅色主题下 fff 与 f6f6f6
+   都不一样，页签栏会变成标题下面一条明显的色带。
+   同理不要圆角：本面板上面还有标题栏，不在容器圆角上，那圈圆角只会把容器底色从两个角上露出来。 */
 .${PANEL_CLASS}--mobile > .layout-tab-bar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
     flex-shrink: 0;
-    background-color: transparent;
+    background-color: var(--b3-theme-surface);
     /* 页签按原生功能区划分后有七个，一屏放不下：整条可以左右滑动，
        每一项按内容给宽度（flex: 0 0 auto），不做等分也不换行。
        刻意不加 scroll-snap：吸附会在每一项上顿一下，手指的惯性被打断，滑起来是「一格一格」的黏感；
@@ -409,6 +417,18 @@ export const PANEL_CSS = `
     overflow: auto;
     box-sizing: border-box;
     padding: 24px;
+}
+/* 移动端：整块面板按自然高度排版，滚动交给宿主的内容区（抽屉高度就是量它量出来的）。
+   所以这里把「每页绝对定位 + 各自滚动」拆掉，改成正常文档流；页签栏的吸顶由上面那条规则负责。 */
+.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__views {
+    position: static;
+    flex: 0 0 auto;
+    overflow: visible;
+}
+.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__views > .${PANEL_CLASS}__view {
+    position: static;
+    overflow: visible;
+    padding: 8px;
 }
 /* 设置行不要卡片底色与大圆角 */
 .${PANEL_CLASS} .config-items {
@@ -512,7 +532,7 @@ export const PANEL_CSS = `
     .some-settings-dialog .b3-dialog__action {
         padding: 7px 8px;
     }
-    /* 页签内容自己也收到 8px：弹窗内容区已经不再留内边距（见 applyPanelWidth） */
+    /* 页签内容自己也收到 8px：弹窗内容区已经不再留内边距（见 applyDesktopLayout） */
     .b3-dialog__body .${PANEL_CLASS}__view {
         padding: 8px;
     }

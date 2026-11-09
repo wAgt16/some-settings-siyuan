@@ -29,12 +29,16 @@ const LAYER_CSS_ID = `${LAYER_CLASS}-local-css`;
 
 /**
  * 预热的作用范围：动画容器、内容区，以及设置面板里真正滚动的页签内容。
- * 最后一条只在设置面板的弹窗里命中，其它弹窗只有前两条生效。
+ *
+ * 最后一条只认桌面端的面板：桌面端是每一页自己滚（`.some-settings-panel__view`），
+ * 移动端整块面板由宿主的内容区滚动（已经由第二条覆盖），页签内容本身不再是滚动区 ——
+ * 给一个和正文一样高的静态元素建层只会白占内存，所以排除掉 `--mobile`。
+ * 其它弹窗只有前两条生效。
  */
 const LAYER_CSS = `
 .${LAYER_CLASS}.b3-dialog__container,
 .${LAYER_CLASS} .b3-dialog__content,
-.${LAYER_CLASS} .${PANEL_CLASS}__view:not(.fn__none) {
+.${LAYER_CLASS} .${PANEL_CLASS}:not(.${PANEL_CLASS}--mobile) .${PANEL_CLASS}__view:not(.fn__none) {
     will-change: transform;
 }
 `;

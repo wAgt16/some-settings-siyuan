@@ -18,6 +18,9 @@ Click **Save** when you are done, or **Cancel** to discard everything — closin
 Switching a feature off unmounts it **completely** (styles, listeners and injected nodes are all released) with no
 plugin reload, and a feature that only works on one frontend never appears in the panel on the other one.
 
+The panel is opened through SiYuan's own settings API, so it follows the host: a dialog on the desktop, and a
+bottom drawer on mobile SiYuan versions that render plugin settings as sheets — the plugin ships no sheet of its own.
+
 ## Features
 
 Categories follow the native SiYuan feature each setting affects, and match the tabs of the settings panel.

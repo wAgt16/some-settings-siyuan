@@ -1,3 +1,10 @@
+* **面板走思源原生的 `Setting`**：对话框（标题、正文区、动作区、关闭方式）全部由宿主创建，
+  插件只在 `setting.open()` 返回后往正文里填自己的面板。这样移动端不需要插件做任何事 ——
+  新版宿主在 `Setting.open()` 内部用 `MobileDialog` 渲染，插件设置就自动变成底部抽屉：
+  抓手、拖动、遮罩、返回键、可视视口与键盘避让都由宿主接管，插件不复制任何一套。
+  桌面端仍是居中弹窗；设置窗口模式下 `Setting.close()` 还会替插件收掉那个窗口。
+  `setting.dialog` / `setting.close()` 在当前 SDK 的类型声明里还没有，只在 `setting-dialog.ts`
+  里做一处窄类型扩展（`SettingWithDialog`），不要扩散成全局断言。
 * **页签结构，每页只有一层**：分类按功能**作用到的思源原生功能**划分（人工智能 / 编辑器 /
   文档树与页签 / 界面与外观 / 连接与内核 / 设置与集市 / 插件自身），一个分类一个页签，
   没有内容的不出现；页签内容直接是设置行，**任何形式的嵌套分组都不允许**。
@@ -7,10 +14,11 @@
 * 页签的两套外观都照抄内核，且只借**样式类**，不借内核会认的结构类：
   * 桌面端：弹窗左侧一列（`.some-settings-panel__side` + `b3-list-item`），形制照抄内核设置的
     `.config__panel > .config__side`；窗口窄到 750px 以下时侧栏收成一列图标（内核同款做法）
-  * 移动端：弹窗顶部一条（`.layout-tab-bar` + `item`），照抄内核代码片段弹窗；
-    底色取 `transparent`、**不加圆角**：内核给页签栏的底色是 `--b3-theme-background`，
-    而弹窗容器是 `--b3-theme-surface`，深浅主题下都不一样，页签栏会变成标题下面一条色带；
-    面板的页签栏上面还有标题栏，不在容器圆角上，那圈圆角只会把容器底色从两个角露出来
+  * 移动端：顶部一条（`.layout-tab-bar` + `item`），照抄内核代码片段弹窗；**吸顶**，
+    所以底色必须取 `--b3-theme-surface`（与弹窗容器、移动端底部抽屉的底色完全一致），
+    不能取内核给页签栏的 `--b3-theme-background`，也不能留透明 —— 深浅主题下两者都不一样，
+    页签栏会变成标题下面一条色带，透明则会让行从它下面透出来。
+    **不加圆角**：面板的页签栏上面还有标题栏，不在容器圆角上，那圈圆角只会把容器底色从两个角露出来
   * 移动端页签栏**可以左右滑动**：分类有七个，一屏放不下。每一项 `flex: 0 0 auto`
     并给一个能整块点中的最小宽度，靠 `overflow-x: auto` 横向滚动，不做等分也不换行。
     **不要再用 `item--full`**：它让每一项都抢宽度，页签一多就全挤成等分，滑都滑不动。
@@ -21,18 +29,26 @@
     `dialogs.find(item => item.element.querySelector(".config__tab-container"))?.destroy()`，
     借了这个类，用户再开一次思源设置就可能连带把本插件的面板（连未保存的草稿）销毁掉。
     同理 `.config__side` / `.config__tab-wrap` 也都不用，只在自己的类名里复刻它们的形制。
-* 每一页自己滚动（`.some-settings-panel__view`），弹窗内容区因此不留内边距、也不滚动
-  （由 `setting-dialog.ts` 的 `applyPanelWidth()` 写成行内样式）：否则页签栏会被一起滚走。
+* 滚动分两种：
+  * 桌面端每一页自己滚（`.some-settings-panel__view` 绝对定位铺满），弹窗内容区因此不留内边距、
+    也不滚动（由 `setting-dialog.ts` 的 `applyDesktopLayout()` 写成行内样式）：否则页签栏会被一起滚走
+  * 移动端**按内容自然高度排版**（`--mobile` 去掉绝对定位、`height: auto`），整块交给宿主的内容区
+    滚动、页签栏吸顶。抽屉高度是宿主量内容的自然高度再按视口裁限的，写死高度（`height: 100%`
+    在自动高度的父级里退化成 `auto`）会让抽屉塌成一条或者一打开就空出一截
 * 入场前给弹窗容器挂 `.some-settings-layer`（`core/layer.ts` 的 `preheatDialogLayer()`），
   由该模块注入的样式给容器、`.b3-dialog__content` 和当前可见的 `.some-settings-panel__view`
-  常驻 `will-change: transform`。`Dialog` 的入场是 `transform` / `opacity` 过渡，
+  （只算桌面端那一页，移动端整块由内容区滚动、不再给页签内容建层）常驻 `will-change: transform`。`Dialog` 的入场是 `transform` / `opacity` 过渡，
   过渡期间临时建层、结束时再拆层，WebView 在拆层那一帧会闪一帧旧画面；预热之后入场期间
   不再建层/拆层。**只补图层提示**：不覆盖宿主的 `transition`、不改 `b3-dialog--open` 的时序、
-  不在 `transitionend` 后移除。`new Dialog()` 返回后同步补类（SDK 的 `DialogOptions` 里还没有
-  `containerClassName`），补类发生在宿主 50ms 后才加的 `b3-dialog--open` 之前。
-  **所有自建 `Dialog` 都走同一个入口**，不要各写一份。
-* 打开路径**不聚焦任何输入控件**：面板是自建 `Dialog`，不走 `Setting.open`，
-  没有它的「聚焦第一个 input / textarea」那一步，因此不会顶起软键盘、也不会因视口缩小而重排。
+  不在 `transitionend` 后移除。`Setting` 用的是同一个 `Dialog`，所以在 `setting.open()`
+  返回后同步补类（SDK 的 `DialogOptions` 里还没有 `containerClassName`），补类发生在宿主
+  50ms 后才加的 `b3-dialog--open` 之前。
+  **设置面板与所有自建 `Dialog` 都走同一个入口**，不要各写一份。
+* 打开路径**不聚焦任何输入控件**：宿主 `Setting.open()` 会把焦点交给正文里的第一个
+  `input` / `textarea`，移动端那一下会顶起软键盘、压缩可视视口。面板用
+  `core/frontend.ts` 的 `withoutMobileInputFocus()` 只包住**同步**的 `open()` 调用：
+  期间临时接管 `HTMLElement.prototype.focus` 挡掉 `input` / `textarea`，`finally` 立刻还原，
+  容器等非输入控件的聚焦照常放行；桌面端直接执行、不碰宿主行为。用户随后点输入框仍能正常编辑。
 * 每个功能的名称与说明渲染成一行（`.some-settings-panel__sub`），它就是一行
   `b3-label config-item`，位置在该页第一行、该功能的参数行之前。
   **功能自己那个默认关闭的开关就放在这一行**，不再单独占一行；功能还有参数时，
@@ -53,8 +69,11 @@
   ≤750px 时 26px，跟着行自己的内边距走）。缩进加在整行上，移动端控件折到第二行时一起对齐；
   分割线仍由内核画满整行。类名由行构造器自己带上（`subtitleRowHtml` 之外的那六个只产出子行），
   功能声明里不用写任何东西，**新功能、新行类型都不用单独适配**。
-* 界面自带动作区，**面板底栏只有「取消 / 保存」两个按钮**，不额外加任何底栏按钮。
-  ⚠️ 宿主的 `Dialog` **不会自动生成动作区**，动作区必须写在自己的 `content` 里。
+* **面板底栏只有「取消 / 保存」两个按钮**，不额外加任何底栏按钮。
+  动作区由宿主的 `Setting.open()` 建好（不传 `confirmCallback` 时它是 `fn__none`），
+  插件把里面的两个按钮**整块换掉**：类名不变、外观与宿主一致，但拿回「有未保存改动时先确认」、
+  「保存期间禁用按钮」这些面板语义，宿主的监听随旧按钮一起丢掉。极旧宿主没有动作区时由
+  `ensureRegion()` 补一个 —— 少了它用户改完就存不下去。
 * 优先使用思源原生类名，保证与内置设置面板一致：
   [思源原生类名表格](./sy-frontend-class.md)
 * 设置字段支持 `switch` / `text` / `number` / `select` 四种取值控件，外加两种不取值的行：
@@ -91,7 +110,8 @@
   去掉它多余的下分割线。
 * 窄屏（≤750px，与内核同一断点）由 `PANEL_CSS` 的媒体查询处理：页签内容与行内边距收窄，
   桌面端的侧栏收成一列图标；折行本身由内核的 `.config-item` 规则完成，插件不再自己折。
-  它靠 `.some-settings-dialog` 类挂作用域，只在弹窗存在期间生效。
+  作用域靠 `.b3-dialog__body .some-settings-panel` 这个前缀，不依赖容器上另挂的类
+  （容器类没挂上过一次，媒体查询就整段落空）。
 * **单位标签必须 `white-space: nowrap`**，否则窄屏下会被压成一列一个字。
   数字行的 `unit` 与其它文案一样按 **i18n key** 解析：`"px"` / `"ms"` / `"%"` / `"vh"`
   查不到就原样返回，而 `"kernelAutoReconnect.times"` 这种才会翻成「次」/ "times"。

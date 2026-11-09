@@ -1,16 +1,23 @@
 /**
  * 插件设置面板。
  *
- * 结构与参考插件的面板同构：`.b3-dialog__content > .config > (页签 + .config-items)*`，
- * 滚动交给每一页自己的 `.some-settings-panel__view`，插件不额外套滚动容器。
+ * 面板走思源原生的 `Setting`：对话框由宿主创建，插件只往它的正文里填自己的面板，
+ * 因此移动端**不需要插件做任何事**就会被新版宿主渲染成底部抽屉（抓手、遮罩、拖动、
+ * 返回键、可视视口与键盘避让全部由宿主接管），桌面端仍是居中的设置弹窗。
+ *
+ * 结构与参考插件的面板同构：`.b3-dialog__content > .config > (页签 + .config-items)*`。
  *
  * - 每个分类（按作用到的原生功能划分）各是一个页签，没有内容的不出现
  * - 桌面端是弹窗左侧的一列页签（照抄内核设置的 `.config__side`），
- *   移动端是弹窗顶部的一条可左右滑动的页签栏（照抄内核代码片段弹窗的 `.layout-tab-bar`）
+ *   移动端是顶部一条可左右滑动的页签栏（照抄内核代码片段弹窗的 `.layout-tab-bar`）
  * - 每一页里第一行是功能名与说明，随后就是设置行，**没有任何嵌套分组**
  * - 每一行都是「左侧文案 + 右侧控件」，控件用思源的 b3-* 类
  * - 行与行之间保留内核 `.b3-label` 自带的分割线，只有整页的最后一行去掉
  * - 底部动作区只有「取消 / 保存」，不额外加任何按钮
+ *
+ * 滚动：桌面端每一页自己滚（`.some-settings-panel__view`），内容区不滚，页签栏不会被滚走；
+ * 移动端的抽屉高度由宿主按内容量出来，所以整块面板按自然高度排版、由宿主的内容区滚动，
+ * 页签栏吸顶。
  *
  * 保存机制：控件改动先落在面板自己的草稿里，点「保存」才写文件并关闭；
  * 点「取消」丢弃草稿。这样设置一定能存下去，也符合原生对话框的语义。
@@ -20,11 +27,14 @@
  * 详见 `docs/experience.md` 里的第 12 条。
  */
 import {
-    Dialog,
+    Setting,
     confirm,
     showMessage,
 } from "siyuan";
-import type {Plugin} from "siyuan";
+import type {
+    Dialog,
+    Plugin,
+} from "siyuan";
 import {bindPendingClick} from "./click";
 import type {ConfigStore} from "./config";
 import {
@@ -32,6 +42,7 @@ import {
     guardSilent,
     reportError,
 } from "./error";
+import {withoutMobileInputFocus} from "./frontend";
 import {preheatDialogLayer} from "./layer";
 import type {
     FeatureActionContext,
@@ -122,7 +133,6 @@ const NARROW_GUTTER = 24;
 const MIN_PANEL_WIDTH = 280;
 /** 宽屏下的面板宽度上限。桌面端是「侧栏 + 内容」两栏，侧栏那 220px 直接吃掉行宽，
  *  所以上限比单栏的移动端放宽一档（内核自己的设置弹窗也是这样，上限 900px）。 */
-const MAX_PANEL_WIDTH = 768;
 const MAX_DESKTOP_PANEL_WIDTH = 900;
 
 /** 取布局视口宽度。移动端的 vw 与 innerWidth 在个别内核上会不一致，用 clientWidth 更稳。 */
@@ -176,8 +186,37 @@ const markLastRow = (rowsHtml: string): string => {
 /** 视口变化轮询间隔。 */
 const VIEWPORT_POLL_MS = 250;
 
+/**
+ * 取对话框里的一个区域（正文区 / 动作区），没有就补一个。
+ *
+ * 宿主的 `Setting.open()` 正常会建好这两个区域；补建只是兜底 —— 结构略有差异的宿主版本
+ * 上宁可自己补一个，也不能让面板没有保存按钮（用户改完存不下去）或者没有正文。
+ */
+const ensureRegion = (parent: HTMLElement, className: string): HTMLElement => {
+    const existing = parent.querySelector<HTMLElement>(`.${className}`);
+    if (existing) {
+        return existing;
+    }
+    const element = document.createElement("div");
+    element.className = className;
+    parent.append(element);
+    return element;
+};
+
+/**
+ * 宿主的 `Setting` 比 SDK 的类型声明多出两样东西（宿主源码里都是 public）：
+ * - `open()` 会把建好的对话框挂在 `setting.dialog` 上；
+ * - `close()` 会按「普通对话框 / 独立设置窗口」分别收掉。
+ * 这里只做一处窄类型扩展，不扩散成全局断言。
+ */
+type SettingWithDialog = Setting & {
+    dialog?: Dialog;
+    close?: () => void;
+};
+
 export class SettingsPanel {
     private readonly options: SettingsPanelOptions;
+    private setting?: SettingWithDialog;
     private dialog?: Dialog;
     private drafts = new Map<string, FeatureConfig>();
     private viewportTimer?: number;
@@ -189,7 +228,7 @@ export class SettingsPanel {
     }
 
     get isOpen(): boolean {
-        return Boolean(this.dialog);
+        return Boolean(this.setting);
     }
 
     private t(key: string, fallback?: string): string {
@@ -215,7 +254,7 @@ export class SettingsPanel {
     // ------------------------------------------------------------ 生命周期
 
     show(): void {
-        if (this.dialog) {
+        if (this.setting) {
             return;
         }
         ensurePanelCss();
@@ -223,48 +262,67 @@ export class SettingsPanel {
         const mobile = isMobileFrontend();
         this.drafts = new Map(features.map((feature) => [feature.id, {...this.options.store.get(feature.id)}]));
 
-        this.dialog = new Dialog({
-            title: this.options.plugin.displayName || this.options.plugin.name,
-            // 注意：宿主的 Dialog 不会自动生成动作区，取消/保存必须由 content 自带，
-            // 否则弹窗里根本没有保存按钮。
-            // 面板根节点在这里就带上布局类：页签的两种外观（桌面端左侧列表 / 移动端顶部页签栏）
-            // 由它决定，render() 只管往里填内容。
-            content: `<div class="b3-dialog__content">
-    <div class="config ${PANEL_CLASS} ${PANEL_CLASS}--tabs${mobile ? ` ${PANEL_CLASS}--mobile` : ""}"></div>
-</div>
-<div class="b3-dialog__action">
-    <button class="b3-button b3-button--cancel" data-ss-cancel type="button">${
-                escapeHtml(this.t("dialog.cancel", window.siyuan.languages.cancel))
-            }</button><div class="fn__space"></div>
-    <button class="b3-button b3-button--text" data-ss-save type="button">${
-                escapeHtml(this.t("dialog.save", window.siyuan.languages.save))
-            }</button>
-</div>`,
-            width: mobile ? "92vw" : "768px",
-            height: "80vh",
+        const setting = new Setting({
             destroyCallback: () => {
+                this.setting = undefined;
                 this.dialog = undefined;
                 this.drafts = new Map();
                 this.stopViewportWatch();
             },
-        });
+        }) as SettingWithDialog;
+        this.setting = setting;
 
-        // 入场图层预热：宿主的 Dialog 在 50ms 后才加 b3-dialog--open，这里在构造之后
-        // 同步补类，样式在过渡开始前就已生效（见 core/layer.ts）。
-        preheatDialogLayer(this.dialog);
-
-        // 面板宽度必须由插件自己定，不能交给 CSS：
-        // Dialog 把宽度写成容器上的行内样式（桌面 768px、移动端 92vw），而内核给
-        // .b3-dialog__container 设了 flex-shrink: 0。行内宽度 + 不收缩，只要视口
-        // 窄于这个宽度，容器就整块溢出屏幕：一侧被裁掉、另一侧贴边，看起来就是
-        // 「移动端边距太大」；容器里空间不足又让标题挤成竖排、连 "ms" 都被
-        // .b3-dialog__content 的 word-break: break-all 从中间断成两行。
+        // 对话框由宿主建：新版宿主在移动端用 MobileDialog 把它渲染成底部抽屉，
+        // 桌面端仍是居中弹窗；设置窗口模式下 Setting.close() 还会替我们收掉那个窗口。
+        // open() 是同步的，返回时正文与动作区都已就绪，因此这里一次性填好整块面板内容 ——
+        // 不逐项插入、不异步挂载，入场动画开始前内容就是完整的。
         //
-        // 之前两次都靠 CSS（作用域类 + 媒体查询）去纠正，真机上都不生效。
-        // 改成：直接量视口，把宽度写成行内样式 —— 不依赖选择器是否命中、
-        // 不依赖媒体查询是否按预期触发，行内样式本身优先级最高。
-        this.applyPanelWidth();
-        this.watchViewport();
+        // 移动端还要挡掉宿主在 open() 里对正文输入控件的自动聚焦：那一下会顶起软键盘、
+        // 压缩可视视口，抽屉跟着重排（见 core/frontend.ts）。
+        try {
+            withoutMobileInputFocus(() => {
+                setting.open(this.options.plugin.displayName || this.options.plugin.name);
+            });
+        } catch (error) {
+            // 宿主建对话框失败时不能留下「已打开」的状态，否则之后再点设置都不会有反应。
+            this.setting = undefined;
+            this.drafts = new Map();
+            reportError("settings.open", error);
+            return;
+        }
+
+        const dialog = setting.dialog;
+        if (!dialog) {
+            // 宿主没有建出对话框：收干净状态并报错，不留一个关不掉的半成品面板。
+            this.setting = undefined;
+            this.drafts = new Map();
+            reportError("settings.open", new Error("the host did not create a settings dialog"));
+            return;
+        }
+        this.dialog = dialog;
+
+        // 入场图层预热：宿主的 Dialog 在 50ms 后才加 b3-dialog--open，这里在 open() 返回后
+        // 同步补类，样式在过渡开始前就已生效（见 core/layer.ts）。
+        preheatDialogLayer(dialog);
+
+        // 面板根节点在这里就带上布局类：页签的两种外观（桌面端左侧列表 / 移动端顶部页签栏）
+        // 由它决定，render() 只管往里填内容。
+        const body = dialog.element.querySelector<HTMLElement>(".b3-dialog__body");
+        if (!body) {
+            reportError("settings.open", new Error("the settings dialog has no body"));
+            this.close();
+            return;
+        }
+        const content = ensureRegion(body, "b3-dialog__content");
+        content.innerHTML = `<div class="config ${PANEL_CLASS} ${PANEL_CLASS}--tabs${
+            mobile ? ` ${PANEL_CLASS}--mobile` : ""
+        }"></div>`;
+
+        if (mobile) {
+            this.applySheetLayout();
+        } else {
+            this.applyDesktopLayout();
+        }
 
         this.render();
         this.bindActions();
@@ -276,7 +334,8 @@ export class SettingsPanel {
 
     /** 插件被禁用/重载/卸载时收掉面板；幂等。 */
     close(): void {
-        this.dialog?.destroy();
+        // Setting.close() 自己区分「普通对话框」与「独立设置窗口」两种收法。
+        this.setting?.close?.();
     }
 
     /**
@@ -291,7 +350,50 @@ export class SettingsPanel {
     }
 
     /**
+     * 桌面端布局。
+     *
+     * 独立设置窗口（宿主给 `.b3-dialog` 加了 `--window`，容器被铺成 100%）只处理内边距：
+     * 那里的宽高由宿主决定，插件再写定值只会让面板缩在窗口一角。
+     * 普通弹窗才自己量视口定宽度，见 `applyPanelWidth()`。
+     */
+    private applyDesktopLayout(): void {
+        const root = this.dialog?.element;
+        if (!root) {
+            return;
+        }
+        // 内边距不能交给媒体查询：它挂在容器类作用下，类一旦没挂上就整段落空
+        // （实测真机就是这样，padding 一直是内核的 16px 24px）。这里直接写行内样式。
+        //
+        // 内容区取 0 内边距、不滚动：页签结构自己撑满这块地方，
+        // 滚动交给每一页（`.some-settings-panel__view`），页签栏才不会被一起滚走。
+        const content = root.querySelector<HTMLElement>(".b3-dialog__content");
+        if (content) {
+            content.style.padding = "0";
+            content.style.overflow = "hidden";
+        }
+        // 动作区窄屏取 8px：内核的 16px 24px 在手机上会吃掉近一半屏宽。
+        const action = root.querySelector<HTMLElement>(".b3-dialog__action");
+        if (action) {
+            action.style.padding = viewportWidth() <= NARROW_WIDTH ? "7px 8px" : "7px 24px";
+        }
+        if (root.querySelector(".b3-dialog--window")) {
+            return;
+        }
+        this.applyPanelWidth();
+        this.watchViewport();
+    }
+
+    /**
      * 按当前视口把面板宽度写成容器上的行内样式（唯一可信的宽度来源）。
+     * 只在桌面端的普通弹窗里用：移动端是宿主的底部抽屉，宽度 100vw 由宿主写死；
+     * 独立设置窗口由宿主铺满整个窗口。
+     *
+     * 面板宽度必须由插件自己定，不能交给 CSS：`Dialog` 把宽度写成容器上的行内样式，
+     * 而内核给 `.b3-dialog__container` 设了 `flex-shrink: 0`。行内宽度 + 不收缩，
+     * 只要视口窄于这个宽度，容器就整块溢出屏幕：一侧被裁掉、另一侧贴边；
+     * 容器里空间不足又让标题挤成竖排、连 "ms" 都被 `.b3-dialog__content` 的
+     * `word-break: break-all` 从中间断成两行。之前两次都靠 CSS（作用域类 + 媒体查询）
+     * 纠正，真机上都不生效 —— 直接量视口写行内样式，优先级最高。
      *
      * 同时把量到的事实挂到容器属性上：判断「修没修上」只要长按 →「检查元素」，
      * 不必依赖控制台。
@@ -303,31 +405,13 @@ export class SettingsPanel {
         }
         const viewport = viewportWidth();
         const narrow = viewport <= NARROW_WIDTH;
-        const maxWidth = isMobileFrontend() ? MAX_PANEL_WIDTH : MAX_DESKTOP_PANEL_WIDTH;
         const width = Math.max(
-            Math.min(narrow ? viewport - NARROW_GUTTER : viewport - 48, maxWidth),
+            Math.min(narrow ? viewport - NARROW_GUTTER : viewport - 48, MAX_DESKTOP_PANEL_WIDTH),
             MIN_PANEL_WIDTH,
         );
         container.style.width = `${width}px`;
         container.style.maxWidth = `${width}px`;
         container.style.minWidth = "0";
-
-        // 内边距同样不能交给媒体查询：它挂在 .some-settings-dialog 作用下，
-        // 类一旦没挂上就整段落空（实测真机就是这样，padding 一直是内核的 16px 24px）。
-        // 这两处都由 JS 直接写行内样式，和宽度走同一条已被证实生效的路径。
-        //
-        // 内容区取 0 内边距、不滚动：页签结构自己撑满这块地方，
-        // 滚动交给每一页（`.some-settings-panel__view`），页签栏才不会被一起滚走。
-        const content = container.querySelector<HTMLElement>(".b3-dialog__content");
-        const action = container.querySelector<HTMLElement>(".b3-dialog__action");
-        if (content) {
-            content.style.padding = "0";
-            content.style.overflow = "hidden";
-        }
-        // 动作区窄屏取 8px：内核的 16px 24px 在手机上会吃掉近一半屏宽。
-        if (action) {
-            action.style.padding = narrow ? "7px 8px" : "7px 24px";
-        }
 
         container.dataset.ssViewport = String(viewport);
         container.dataset.ssWidth = String(width);
@@ -335,8 +419,30 @@ export class SettingsPanel {
     }
 
     /**
-     * 面板宽度是按视口算出来的定值，旋转屏幕或改窗口大小后必须重算。
-     * 用轮询而不是 resize 事件：移动端部分内核在软键盘弹起/收起时只改布局视口，
+     * 移动端（宿主把 `Setting` 渲染成底部抽屉）的布局。
+     *
+     * 抽屉高度由宿主按**内容的自然高度**量出来，再按可视视口裁限（拖动还能改），
+     * 所以这里**不能**给容器写行内宽度和高度：写死高度要么一打开就空出一截，
+     * 要么把内容裁掉。面板按内容自然排版（见 `PANEL_CSS` 里 `--mobile` 那一段），
+     * 整块由宿主的内容区滚动，页签栏吸顶。
+     */
+    private applySheetLayout(): void {
+        const content = this.dialog?.element.querySelector<HTMLElement>(".b3-dialog__content");
+        if (content) {
+            // 内容区取 0 内边距，行自己的内边距由面板给；滚动仍交给宿主的内容区。
+            content.style.padding = "0";
+            content.style.overflow = "auto";
+        }
+        // 动作区与行用同一档内边距，抽屉底部不至于多出一圈空白。
+        const action = this.dialog?.element.querySelector<HTMLElement>(".b3-dialog__action");
+        if (action) {
+            action.style.padding = "7px 8px";
+        }
+    }
+
+    /**
+     * 面板宽度是按视口算出来的定值，改窗口大小后必须重算（桌面端专用）。
+     * 用轮询而不是 resize 事件：桌面窗口的最大化 / 还原在个别内核上只改布局视口、
      * 不派发（或延迟派发）resize，轮询更可靠；250ms 只为改一个字符串。
      */
     private watchViewport(): void {
@@ -375,8 +481,8 @@ export class SettingsPanel {
     }
 
     private render(): void {
-        // 面板直接落在弹窗内容区里（与参考插件同构），滚动交给 .b3-dialog__content，
-        // 不再自己套一层滚动容器——多一层就多一份内边距。
+        // 面板直接落在弹窗内容区里（与参考插件同构）：桌面端滚动交给每一页自己，
+        // 移动端交给宿主的内容区，插件不再自己套一层滚动容器——多一层就多一份内边距。
         const panel = this.dialog?.element.querySelector<HTMLElement>(`.${PANEL_CLASS}`);
         if (!panel) {
             return;
@@ -708,6 +814,20 @@ export class SettingsPanel {
         const root = this.dialog?.element;
         if (!root) {
             return;
+        }
+        // 宿主的 Setting.open() 已经建好动作区，并把点击绑在它自己的「取消 / 保存」上
+        // （没传 confirmCallback 时整个动作区还是 fn__none）。这里把动作区整块换成
+        // 本插件自己的两个按钮：类名不变，外观与宿主一致，但拿回「有未保存改动时先确认」、
+        // 「保存期间禁用按钮」这些面板语义；宿主的监听随旧按钮一起丢掉。
+        const body = root.querySelector<HTMLElement>(".b3-dialog__body");
+        if (body) {
+            const action = ensureRegion(body, "b3-dialog__action");
+            action.classList.remove("fn__none");
+            action.innerHTML = `<button class="b3-button b3-button--cancel" data-ss-cancel type="button">${
+                escapeHtml(this.t("dialog.cancel", window.siyuan.languages.cancel))
+            }</button><div class="fn__space"></div><button class="b3-button b3-button--text" data-ss-save type="button">${
+                escapeHtml(this.t("dialog.save", window.siyuan.languages.save))
+            }</button>`;
         }
         // 底栏两个按钮同样走 bindPendingClick：取消在有未保存改动时会再开一个确认框，
         // 保存要等写盘和读回校验，连点都会把同一件事做两遍（两个确认框、两次写盘）。
