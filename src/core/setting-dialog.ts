@@ -31,6 +31,7 @@ import {
     guardSilent,
     reportError,
 } from "./error";
+import {preheatDialogLayer} from "./layer";
 import type {
     FeatureActionContext,
     FeatureCategory,
@@ -246,6 +247,10 @@ export class SettingsPanel {
                 this.stopViewportWatch();
             },
         });
+
+        // 入场图层预热：宿主的 Dialog 在 50ms 后才加 b3-dialog--open，这里在构造之后
+        // 同步补类，样式在过渡开始前就已生效（见 core/layer.ts）。
+        preheatDialogLayer(this.dialog);
 
         // 面板宽度必须由插件自己定，不能交给 CSS：
         // Dialog 把宽度写成容器上的行内样式（桌面 768px、移动端 92vw），而内核给

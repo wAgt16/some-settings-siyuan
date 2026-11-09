@@ -19,6 +19,7 @@ import {
     showMessage,
 } from "siyuan";
 import {reportError} from "../../core/error";
+import {preheatDialogLayer} from "../../core/layer";
 import {
     escapeHtml,
     isMobileFrontend,
@@ -388,6 +389,7 @@ export const openIconManager = (options: IconManagerOptions): void => {
                 nested = undefined;
             },
         });
+        preheatDialogLayer(nested);
         const element = nested.element;
         element.querySelector<HTMLButtonElement>("[data-cancel]")?.addEventListener("click", () => nested?.destroy());
         element.querySelector<HTMLButtonElement>("[data-confirm]")?.addEventListener("click", () => {
@@ -401,7 +403,11 @@ export const openIconManager = (options: IconManagerOptions): void => {
                 showMessage(t("bazaarIcon.invalid"), 5000, "error");
             }
         });
-        element.querySelector<HTMLTextAreaElement>("[data-text]")?.focus();
+        // 移动端不聚焦输入框：软键盘在入场动画期间弹起会让视口缩小、弹窗重新居中，
+        // 看起来就是闪一下；用户点一下输入框再粘贴即可。
+        if (!isMobileFrontend()) {
+            element.querySelector<HTMLTextAreaElement>("[data-text]")?.focus();
+        }
     };
 
     const input = document.createElement("input");
@@ -442,6 +448,7 @@ export const openIconManager = (options: IconManagerOptions): void => {
             input.remove();
         },
     });
+    preheatDialogLayer(dialog);
     openDialog = dialog;
     offUnload = options.onUnload(() => dialog?.destroy());
     dialog.element.append(input);

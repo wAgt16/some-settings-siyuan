@@ -23,6 +23,16 @@
     同理 `.config__side` / `.config__tab-wrap` 也都不用，只在自己的类名里复刻它们的形制。
 * 每一页自己滚动（`.some-settings-panel__view`），弹窗内容区因此不留内边距、也不滚动
   （由 `setting-dialog.ts` 的 `applyPanelWidth()` 写成行内样式）：否则页签栏会被一起滚走。
+* 入场前给弹窗容器挂 `.some-settings-layer`（`core/layer.ts` 的 `preheatDialogLayer()`），
+  由该模块注入的样式给容器、`.b3-dialog__content` 和当前可见的 `.some-settings-panel__view`
+  常驻 `will-change: transform`。`Dialog` 的入场是 `transform` / `opacity` 过渡，
+  过渡期间临时建层、结束时再拆层，WebView 在拆层那一帧会闪一帧旧画面；预热之后入场期间
+  不再建层/拆层。**只补图层提示**：不覆盖宿主的 `transition`、不改 `b3-dialog--open` 的时序、
+  不在 `transitionend` 后移除。`new Dialog()` 返回后同步补类（SDK 的 `DialogOptions` 里还没有
+  `containerClassName`），补类发生在宿主 50ms 后才加的 `b3-dialog--open` 之前。
+  **所有自建 `Dialog` 都走同一个入口**，不要各写一份。
+* 打开路径**不聚焦任何输入控件**：面板是自建 `Dialog`，不走 `Setting.open`，
+  没有它的「聚焦第一个 input / textarea」那一步，因此不会顶起软键盘、也不会因视口缩小而重排。
 * 每个功能的名称与说明渲染成一行（`.some-settings-panel__sub`），它就是一行
   `b3-label config-item`，位置在该页第一行、该功能的参数行之前。
   **功能自己那个默认关闭的开关就放在这一行**，不再单独占一行；功能还有参数时，

@@ -124,6 +124,20 @@
     正确做法是**一开始就别匹配**（`:not(.b3-dialog__scrim--progress)`），宿主的声明根本没被覆盖，
     也就无所谓还回去。
 
+20. **弹窗入场闪烁是两个独立问题（图层与聚焦），只挡一个不够，也不能用其中一个的消失代替另一个。**
+    * **图层**：宿主的 `Dialog` 用 `transform` / `opacity` 做入场（`.b3-dialog__container` 从
+      `scale(.8)` / `opacity: 0` 过渡到 `transform: none`），过渡期间临时建层、结束时再拆层，
+      WebView 在拆层那一帧只能提交拆层前的旧纹理 —— 弹窗闪一帧旧画面。
+      **规则：`new Dialog()` 返回后立刻调 `core/layer.ts` 的 `preheatDialogLayer(dialog)`**，
+      给容器挂 `.some-settings-layer`，由该模块注入的样式把容器、`.b3-dialog__content`
+      和确有滚动正文的区域常驻提升为独立图层。只加 `will-change`：不覆盖宿主的 `transition`、
+      不改 `b3-dialog--open` 的时序、不在 `transitionend` 后移除。
+      补类必须发生在宿主 50ms 后才加的 `b3-dialog--open` 之前，所以只能同步调用。
+    * **聚焦**：打开路径里 `input.focus()` / `textarea.focus()` 会弹起软键盘，键盘的 adjustResize
+      改掉 WebView 高度、整页重排，弹窗在入场那一帧就闪旧画面。
+      **规则：移动端打开弹窗时不程序性聚焦可输入控件**（`isMobileFrontend()` 判一下，桌面端保持），
+      由用户点一下再输入。
+
 ---
 
 ## 各功能的实现取舍

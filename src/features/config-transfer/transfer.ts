@@ -18,6 +18,7 @@ import {
 import {copyText} from "../../core/clipboard";
 import {reportError} from "../../core/error";
 import {isMobile} from "../../core/frontend";
+import {preheatDialogLayer} from "../../core/layer";
 import type {FeatureActionContext} from "../../core/types";
 import {escapeHtml} from "../../core/ui";
 import {parseImport} from "./parse";
@@ -81,6 +82,7 @@ const openDialog = (context: FeatureActionContext, spec: DialogSpec): void => {
     <button class="b3-button b3-button--text" type="button" data-ss-run>${escapeHtml(spec.actionLabel)}</button>
 </div>`,
     });
+    preheatDialogLayer(dialog);
     const field = dialog.element.querySelector<HTMLElement>(spec.editable ? "textarea" : "pre");
     if (field instanceof HTMLTextAreaElement) {
         field.value = spec.json;

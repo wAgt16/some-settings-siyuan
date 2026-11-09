@@ -15,6 +15,7 @@ import {
     type Protyle,
 } from "siyuan";
 import {reportError} from "../../core/error";
+import {preheatDialogLayer} from "../../core/layer";
 import type {FeatureHost} from "../../core/types";
 import {
     isMobileFrontend,
@@ -235,6 +236,7 @@ const openDialog = (host: FeatureHost, protyle: Protyle): void => {
         },
     });
 
+    preheatDialogLayer(dialog);
     const element = dialog.element;
     const input = element.querySelector<HTMLInputElement>("[data-name]");
     const confirm = element.querySelector<HTMLButtonElement>("[data-confirm]");
@@ -290,7 +292,11 @@ const openDialog = (host: FeatureHost, protyle: Protyle): void => {
         event.stopPropagation();
         void submit();
     });
-    input?.focus();
+    // 移动端不在这里聚焦输入框：宿主的软键盘会在入场动画期间弹起，视口跟着缩小、
+    // 弹窗重新居中，看起来就是闪一下。用户点一下输入框再输入即可。
+    if (!isMobileFrontend()) {
+        input?.focus();
+    }
 };
 
 export const mountAssetsNewFile = (host: FeatureHost): void => {

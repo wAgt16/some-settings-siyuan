@@ -9,6 +9,7 @@
 import {Dialog} from "siyuan";
 import {copyText} from "../../core/clipboard";
 import {isMobile} from "../../core/frontend";
+import {preheatDialogLayer} from "../../core/layer";
 import type {
     FeatureHost,
     FeatureInstance,
@@ -246,6 +247,7 @@ export const openConsoleLog = (): void => {
             openDialog = undefined;
         },
     });
+    preheatDialogLayer(dialog);
     openDialog = dialog;
 
     const list = dialog.element.querySelector<HTMLElement>("[data-log-list]");

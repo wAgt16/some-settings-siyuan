@@ -33,6 +33,7 @@ import {
 } from "siyuan";
 import {guardSilent} from "../../core/error";
 import {isMobile} from "../../core/frontend";
+import {preheatDialogLayer} from "../../core/layer";
 import type {
     FeatureHost,
     FeatureInstance,
@@ -574,6 +575,7 @@ export const mountOssUsage = (host: FeatureHost): FeatureInstance => {
                 stopRequest();
             },
         });
+        preheatDialogLayer(dialog);
         const current = dialog;
         current.element.querySelector<HTMLButtonElement>("[data-ss-close]")?.addEventListener("click", () => {
             current.destroy();

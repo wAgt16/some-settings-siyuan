@@ -14,6 +14,7 @@
 import {Dialog} from "siyuan";
 import {copyText} from "../../core/clipboard";
 import {isMobile} from "../../core/frontend";
+import {preheatDialogLayer} from "../../core/layer";
 import type {
     FeatureHost,
     FeatureInstance,
@@ -141,6 +142,7 @@ export const mountExternalLinkConfirm = (host: FeatureHost): FeatureInstance => 
                 dialog = undefined;
             },
         });
+        preheatDialogLayer(dialog);
         // 按钮一律按自定义属性取：动作区里还有一个复制按钮，按 .b3-button 的下标取会错位
         dialog.element.querySelector<HTMLButtonElement>("[data-ss-copy-link]")?.addEventListener("click", () => {
             void copyText(href).then((ok) => {
