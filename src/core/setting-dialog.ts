@@ -24,7 +24,7 @@
  *
  * 生命周期同样只有显式入口：取消、保存、插件卸载（外加内核自己的 Esc）。
  * **不监听窗口失焦，也不监听 `document` 可见性** —— 两者都不等于「用户离开了」，
- * 详见 `docs/experience.md` 里的第 12 条。
+ * 详见 `docs/development.md` 里的第 12 条。
  */
 import {
     Setting,

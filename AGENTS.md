@@ -1,6 +1,6 @@
 # AGENTS.md
 
-思源笔记插件 `some-settings-siyuan` 的开发规范。踩过的坑见 [experience.md](./docs/experience.md)，
+思源笔记插件 `some-settings-siyuan` 的开发规范。踩过的坑见 [development.md](./docs/development.md)，
 设置面板见 [setting-panel.md](./docs/setting-panel.md)。
 
 ---

@@ -103,7 +103,7 @@
     因此**版本号、仓库地址这类事实不要在文案里手写**：由功能从插件清单里读出来当 `values` 传进来
 * **每个功能的第一个设置行必须是默认关闭的开关**（或声明 `isEnabled`），见 §3。
 * **间距与分割线全部交给内核**
-* 面板每次打开都会**重写**自己那份 `<style>` 的内容（见 [experience.md](./experience.md) 第 6 条），
+* 面板每次打开都会**重写**自己那份 `<style>` 的内容（见 [development.md](./development.md) 第 6 条），
   所以改 `PANEL_CSS` 后重载插件就能生效，不必整页刷新。
 * 一页的行是跨功能拼出来的，`:last-child` 看不见真正意义上的最后一行，
   所以由 `setting-dialog.ts` 的 `markLastRow()` 给最后一行加 `config-item--last-visible`，
