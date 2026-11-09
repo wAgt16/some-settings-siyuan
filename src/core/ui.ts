@@ -30,6 +30,18 @@ import type {FeatureCategory} from "./types";
 /** 面板内的作用域类名，用于在插件自己的 CSS 里限定样式，不污染全局。 */
 export const PANEL_CLASS = "some-settings-panel";
 
+/**
+ * 子设置行的类名。
+ *
+ * 功能名那一行是 `__sub`（`subtitleRowHtml`），它下面的每一行 —— 参数、说明块、动作行 ——
+ * 都带这个类。面板只靠它做缩进，功能声明里不用写任何东西。
+ *
+ * 下面这些行构造器只有 `subtitleRowHtml` 产出主行，其余六个都只用于子行
+ * （全部由 `setting-dialog.ts` 的 `fieldHtml()` 调用），所以类名直接写在它们里面，
+ * 调用方不需要再传一个「这一行是子行」的开关。以后加新的行类型也照这个约定写。
+ */
+const CHILD_CLASS = `${PANEL_CLASS}__child`;
+
 export const isMobileFrontend = (): boolean => {
     const frontend = getFrontend();
     return frontend === "mobile" || frontend === "browser-mobile";
@@ -173,7 +185,7 @@ export const switchRowHtml = (
     description?: string,
     disabled = false,
 ): string =>
-    `<label class="fn__flex b3-label config-item" data-ss-row="${escapeHtml(key)}">
+    `<label class="fn__flex b3-label config-item ${CHILD_CLASS}" data-ss-row="${escapeHtml(key)}">
     ${mainHtml(title, description)}
     <span class="fn__space"></span>
     ${switchControlHtml(key, title, checked, disabled)}
@@ -188,7 +200,7 @@ export const selectRowHtml = (
     description?: string,
     disabled = false,
 ): string =>
-    `<div class="fn__flex b3-label config-item" data-ss-row="${escapeHtml(key)}">
+    `<div class="fn__flex b3-label config-item ${CHILD_CLASS}" data-ss-row="${escapeHtml(key)}">
     ${mainHtml(title, description)}
     <span class="fn__space"></span>
     ${selectControlHtml(key, options, current, disabled)}
@@ -212,7 +224,7 @@ export const numberRowHtml = (
             escapeHtml(options.unit)
         }</span></div>` :
         input;
-    return `<div class="fn__flex b3-label config-item" data-ss-row="${escapeHtml(key)}">
+    return `<div class="fn__flex b3-label config-item ${CHILD_CLASS}" data-ss-row="${escapeHtml(key)}">
     ${mainHtml(title, options.description)}
     <span class="fn__space"></span>
     ${control}
@@ -226,7 +238,7 @@ export const textRowHtml = (
     value: string,
     options: {placeholder?: string; description?: string; disabled?: boolean;} = {},
 ): string =>
-    `<div class="fn__flex b3-label config-item" data-ss-row="${escapeHtml(key)}">
+    `<div class="fn__flex b3-label config-item ${CHILD_CLASS}" data-ss-row="${escapeHtml(key)}">
     ${mainHtml(title, options.description)}
     <span class="fn__space"></span>
     <input class="b3-text-field fn__flex-center fn__size200" type="text" data-ss-text="${escapeHtml(key)}"
@@ -247,7 +259,7 @@ export const buttonRowHtml = (
     label: string,
     options: {description?: string; disabled?: boolean;} = {},
 ): string =>
-    `<div class="fn__flex b3-label config-item" data-ss-row="${escapeHtml(key)}">
+    `<div class="fn__flex b3-label config-item ${CHILD_CLASS}" data-ss-row="${escapeHtml(key)}">
     ${mainHtml(title, options.description)}
     <span class="fn__space"></span>
     <button class="b3-button b3-button--outline fn__flex-center fn__size200" type="button"
@@ -287,7 +299,9 @@ export const noteBodyHtml = (
  * 说明块不是设置项，没有控件可放，文案必须占满整行。
  */
 export const noteRowHtml = (key: string, bodyHtml: string): string =>
-    `<div class="b3-label config-item ${PANEL_CLASS}__note" data-ss-row="${escapeHtml(key)}">${bodyHtml}</div>`;
+    `<div class="b3-label config-item ${PANEL_CLASS}__note ${CHILD_CLASS}" data-ss-row="${
+        escapeHtml(key)
+    }">${bodyHtml}</div>`;
 
 /**
  * 面板的全部局部样式：只在插件自己的弹窗作用域内生效。
@@ -401,6 +415,15 @@ export const PANEL_CSS = `
     background-color: transparent;
     border-radius: 0;
 }
+/* 子设置行缩进 -----------------------------------------------------------
+   功能名那一行（__sub）保持原样，它下面的参数行、说明块、动作行统一缩进一小格，
+   「哪个设置属于哪个功能」一眼就看得出来。缩进加在整行上而不是只挪文案：
+   移动端控件会折到第二行，整行一起缩进才对齐；行间的分割线仍由内核画满整行。
+   基数跟着行自己的内边距走 —— 桌面端内核给 .b3-label 的是 24px，
+   窄屏下面板把行压到 10px（见下面的媒体查询），所以两边各写一条。 */
+.${PANEL_CLASS} .config-items > .${CHILD_CLASS} {
+    padding-inline-start: 40px;
+}
 /* 面板里的文案只有两种角色：功能名（父项）与它下面的设置项、说明。
    只有功能名加粗；「重试次数」「重试间隔」这类子设置项一律常规字重，
    说明再淡一档。之前把所有 .config-item__main 都加粗，子设置项跟着变粗，
@@ -509,6 +532,10 @@ export const PANEL_CSS = `
     .b3-dialog__body .${PANEL_CLASS} .b3-label.config-item,
     .b3-dialog__body .${PANEL_CLASS} .config-item {
         padding: 8px 10px;
+    }
+    /* 子行缩进跟着窄屏这 10px 走；选择器多带 .config-item 一级，才压得过上面那条简写 */
+    .b3-dialog__body .${PANEL_CLASS} .b3-label.config-item.${CHILD_CLASS} {
+        padding-inline-start: 26px;
     }
     .b3-dialog__body .${PANEL_CLASS} .config-item__main {
         flex: 1 1 100%;
