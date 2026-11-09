@@ -25,6 +25,7 @@ import {
     showMessage,
 } from "siyuan";
 import type {Plugin} from "siyuan";
+import {bindPendingClick} from "./click";
 import type {ConfigStore} from "./config";
 import {
     guardAsync,
@@ -618,10 +619,12 @@ export class SettingsPanel {
                 openExternalLink(anchor.href, event);
             });
         });
-        // 动作行：点击立刻执行，不进草稿，因此不受「取消 / 保存」影响
+        // 动作行：点击立刻执行，不进草稿，因此不受「取消 / 保存」影响。
+        // 一律走 bindPendingClick：动作行常常是「先异步准备，再开窗」（导出配置就是这样），
+        // 执行期间按钮必须禁掉，否则连点几下会一次冒出好几个弹窗。
         scope.querySelectorAll<HTMLButtonElement>("[data-ss-button]").forEach((button) => {
-            button.addEventListener("click", () => {
-                const encoded = button.dataset.ssButton as string;
+            const encoded = button.dataset.ssButton as string;
+            bindPendingClick(button, encoded, () => {
                 const [featureId, key] = parseBindKey(encoded);
                 const field = this.options.features
                     .find((feature) => feature.id === featureId)
@@ -630,7 +633,10 @@ export class SettingsPanel {
                     console.warn(`[some-settings-siyuan] action row "${encoded}" has no matching onClick, ignoring it`);
                     return;
                 }
-                guardAsync(`${featureId}.${key}`, () => Promise.resolve(field.onClick(this.actionContext(featureId))));
+                return guardAsync(
+                    `${featureId}.${key}`,
+                    () => Promise.resolve(field.onClick(this.actionContext(featureId))),
+                );
             });
         });
     }
@@ -703,20 +709,26 @@ export class SettingsPanel {
         if (!root) {
             return;
         }
-        root.querySelector<HTMLButtonElement>("[data-ss-cancel]")?.addEventListener("click", () => {
-            if (this.isDirty()) {
-                confirm(
-                    this.t("dialog.discardTitle", this.options.plugin.displayName || this.options.plugin.name),
-                    this.t("dialog.discardText"),
-                    () => this.close(),
-                );
-                return;
-            }
-            this.close();
-        });
-        root.querySelector<HTMLButtonElement>("[data-ss-save]")?.addEventListener("click", () => {
-            this.save();
-        });
+        // 底栏两个按钮同样走 bindPendingClick：取消在有未保存改动时会再开一个确认框，
+        // 保存要等写盘和读回校验，连点都会把同一件事做两遍（两个确认框、两次写盘）。
+        const cancelButton = root.querySelector<HTMLButtonElement>("[data-ss-cancel]");
+        if (cancelButton) {
+            bindPendingClick(cancelButton, "settings.cancel", () => {
+                if (this.isDirty()) {
+                    confirm(
+                        this.t("dialog.discardTitle", this.options.plugin.displayName || this.options.plugin.name),
+                        this.t("dialog.discardText"),
+                        () => this.close(),
+                    );
+                    return;
+                }
+                this.close();
+            });
+        }
+        const saveButton = root.querySelector<HTMLButtonElement>("[data-ss-save]");
+        if (saveButton) {
+            bindPendingClick(saveButton, "settings.save", () => this.save());
+        }
     }
 
     private isDirty(): boolean {
@@ -739,13 +751,13 @@ export class SettingsPanel {
         return Object.keys(changed).length > 0 ? changed : null;
     }
 
-    private save(): void {
+    private save(): Promise<void> {
         const changed = this.changedDrafts();
         if (!changed) {
             this.close();
-            return;
+            return Promise.resolve();
         }
-        this.options.store.saveMany(changed).then(() => {
+        return this.options.store.saveMany(changed).then(() => {
             showMessage(this.t("dialog.saved"), 3000);
             this.close();
         }).catch((error) => {
