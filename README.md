@@ -91,12 +91,12 @@ Categories follow the native SiYuan feature each setting affects, and match the 
 | Aliyun OSS bucket usage          | both       | Adds a usage button to the S3 storage settings that reads the bucket's storage size and object count with the credentials saved there; hidden when the endpoint is not Aliyun |
 | Custom marketplace icons         | both       | Replaces the icon of an installed marketplace package; the image is stored under `icons/` in the plugin directory, and saving one turns the feature on                        |
 | Syntax highlighting for snippets | both       | Colours the snippet editor using SiYuan's own highlight.js and current code theme                                                                                             |
+| Console log viewer               | mobile     | Collects console output from the moment the plugin loads and shows the full log, with copy-all and clear                                                                      |
 
 ### This plugin
 
 | Setting                                       | Applies to | What it does                                                                                                         |
 | --------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------- |
-| Console log viewer                            | mobile     | Collects console output from the moment the plugin loads and shows the full log, with copy-all and clear             |
 | Clear this plugin's configuration             | both       | Wipes every configuration file in the plugin's storage directory, then reloads the frontend, back to a fresh install |
 | About this plugin                             | both       | A read-only notice: what the plugin is, the current version and the GitHub repository                                |
 | Import and export this plugin's configuration | both       | Exports every configuration file in the storage directory as one JSON document, and writes it back                   |
