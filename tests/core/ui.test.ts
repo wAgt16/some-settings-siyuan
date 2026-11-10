@@ -1,0 +1,392 @@
+/**
+ * `core/ui.ts`：思源原生风格的 UI 基元。
+ *
+ * 这些函数只产出标记字符串，所以断言分两层：结构用 DOM 查询（改成什么样），
+ * 转义用字符串比对（有没有把用户文案当 HTML 执行）。
+ */
+import {
+    describe,
+    expect,
+    it,
+} from "vitest";
+import {
+    buttonRowHtml,
+    ensurePanelCss,
+    escapeHtml,
+    isMobileFrontend,
+    mainHtml,
+    noteBodyHtml,
+    noteRowHtml,
+    numberRowHtml,
+    PANEL_CLASS,
+    PANEL_CSS,
+    selectControlHtml,
+    selectRowHtml,
+    subtitleRowHtml,
+    switchControlHtml,
+    switchRowHtml,
+    tabBarHtml,
+    tabItemHtml,
+    tabPaneHtml,
+    tabSideHtml,
+    tabViewsHtml,
+    textRowHtml,
+} from "../../src/core/ui";
+import {mockState} from "../mocks/siyuan";
+
+const parse = (html: string): HTMLElement => {
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    return container;
+};
+
+const query = <T extends HTMLElement>(html: string, selector: string): T | null =>
+    parse(html).querySelector<T>(selector);
+
+const CHILD_CLASS = `${PANEL_CLASS}__child`;
+const tab = {id: "editor" as const, label: "正文", icon: "iconEdit"};
+
+describe("escapeHtml", () => {
+    it("转义全部五个 HTML 危险字符", () => {
+        expect(escapeHtml("&<>\"'")).toBe("&amp;&lt;&gt;&quot;&#39;");
+    });
+
+    it("普通文字原样返回", () => {
+        expect(escapeHtml("普通文字 123")).toBe("普通文字 123");
+    });
+
+    it("只转一次，生成的实体不会被再转一遍", () => {
+        expect(escapeHtml("&")).toBe("&amp;");
+        expect(escapeHtml("<")).toBe("&lt;");
+        expect(escapeHtml("&lt;")).toBe("&amp;lt;");
+    });
+});
+
+describe("mainHtml", () => {
+    it("标题放进 config-item__main，说明放进 b3-label__text", () => {
+        const root = parse(mainHtml("标题", "说明"));
+        expect(root.querySelector(".config-item__main")?.textContent).toBe("标题说明");
+        expect(root.querySelector(".b3-label__text")?.textContent).toBe("说明");
+    });
+
+    it("没有说明时不生成说明块", () => {
+        expect(query(mainHtml("标题"), ".b3-label__text")).toBeNull();
+    });
+
+    it("文案里的 HTML 被转义", () => {
+        expect(mainHtml("<b>x</b>")).toContain("&lt;b&gt;x&lt;/b&gt;");
+    });
+});
+
+describe("页签结构", () => {
+    it("桌面端是左侧列表，带 role=tablist", () => {
+        const root = parse(tabSideHtml("<li></li>"));
+        expect(root.querySelector(`.${PANEL_CLASS}__side.b3-list`)?.getAttribute("role")).toBeNull();
+        expect(root.querySelector(`.${PANEL_CLASS}__tabs`)?.getAttribute("role")).toBe("tablist");
+        expect(root.querySelector("li")).not.toBeNull();
+    });
+
+    it("移动端是顶部页签栏，用内核的 layout-tab-bar", () => {
+        const root = parse(tabBarHtml("<div></div>"));
+        expect(root.querySelector(".layout-tab-bar.fn__flex.fn__flex-shrink")).not.toBeNull();
+    });
+
+    it("内容区容器包住每一页", () => {
+        const root = parse(tabViewsHtml(tabPaneHtml("editor", "body", true)));
+        expect(root.querySelector(`.${PANEL_CLASS}__views > .${PANEL_CLASS}__view`)).not.toBeNull();
+    });
+});
+
+describe("tabItemHtml", () => {
+    it("桌面端：b3-list-item，选中时带 focus 类与 aria-selected", () => {
+        const active = query<HTMLElement>(tabItemHtml(tab, true, false), "li")!;
+        expect(active.className).toContain("b3-list-item");
+        expect(active.className).toContain("b3-list-item--focus");
+        expect(active.dataset.ssTab).toBe("editor");
+        expect(active.getAttribute("role")).toBe("tab");
+        expect(active.getAttribute("tabindex")).toBe("0");
+        expect(active.getAttribute("aria-selected")).toBe("true");
+        expect(active.querySelector("use")?.getAttribute("xlink:href")).toBe("#iconEdit");
+        expect(active.querySelector(".b3-list-item__text")?.textContent).toBe("正文");
+    });
+
+    it("桌面端：未选中时不带 focus 类，也不写 aria-selected", () => {
+        const idle = query<HTMLElement>(tabItemHtml(tab, false, false), "li")!;
+        expect(idle.className).not.toContain("--focus");
+        expect(idle.getAttribute("aria-selected")).toBeNull();
+    });
+
+    it("移动端：用 item 类、不参与收缩", () => {
+        const mobile = query<HTMLElement>(tabItemHtml(tab, true, true), "div")!;
+        expect(mobile.className).toContain("item");
+        expect(mobile.className).toContain("item--focus");
+        expect(mobile.className).not.toContain("b3-list-item");
+        expect(mobile.dataset.ssTab).toBe("editor");
+        expect(mobile.querySelector(".item__text")?.textContent).toBe("正文");
+    });
+
+    it("移动端未选中时不带 focus 类，也不写 aria-selected", () => {
+        const idle = query<HTMLElement>(tabItemHtml(tab, false, true), "div")!;
+        expect(idle.className).not.toContain("item--focus");
+        expect(idle.getAttribute("aria-selected")).toBeNull();
+    });
+
+    it("页签文案被转义", () => {
+        const html = tabItemHtml({...tab, label: "<x>"}, false, false);
+        expect(html).toContain("&lt;x&gt;");
+    });
+});
+
+describe("tabPaneHtml", () => {
+    it("当前页没有 fn__none，其余页带 fn__none", () => {
+        const active = query<HTMLElement>(tabPaneHtml("editor", "body", true), "div")!;
+        expect(active.classList.contains("fn__none")).toBe(false);
+        expect(active.dataset.ssTabPanel).toBe("editor");
+        expect(active.getAttribute("role")).toBe("tabpanel");
+        expect(active.querySelector(".config-items")?.textContent).toBe("body");
+
+        const idle = query<HTMLElement>(tabPaneHtml("ai", "body", false), "div")!;
+        expect(idle.classList.contains("fn__none")).toBe(true);
+    });
+});
+
+describe("控件本体", () => {
+    it("开关：checkbox + b3-switch + data-ss-switch + aria-label", () => {
+        const input = query<HTMLInputElement>(switchControlHtml("demo::enabled", "启用", true), "input")!;
+        expect(input.type).toBe("checkbox");
+        expect(input.className).toContain("b3-switch");
+        expect(input.dataset.ssSwitch).toBe("demo::enabled");
+        expect(input.getAttribute("aria-label")).toBe("启用");
+        expect(input.checked).toBe(true);
+        expect(input.disabled).toBe(false);
+    });
+
+    it("开关：未选中与禁用", () => {
+        const input = query<HTMLInputElement>(switchControlHtml("k", "l", false, true), "input")!;
+        expect(input.checked).toBe(false);
+        expect(input.hasAttribute("disabled")).toBe(true);
+    });
+
+    it("下拉：选项、当前值、禁用", () => {
+        const select = query<HTMLSelectElement>(
+            selectControlHtml("demo::mode", [{value: "a", label: "A"}, {value: "b", label: "B"}], "b", true),
+            "select",
+        )!;
+        expect(select.dataset.ssSelect).toBe("demo::mode");
+        expect(select.className).toContain("b3-select");
+        expect([...select.options].map((option) => option.value)).toEqual(["a", "b"]);
+        expect(select.value).toBe("b");
+        expect(select.disabled).toBe(true);
+    });
+});
+
+describe("行容器", () => {
+    it("功能名那一行：没有控件时是纯文案行", () => {
+        const row = query<HTMLElement>(subtitleRowHtml("功能名", "说明"), "div")!;
+        expect(row.classList.contains("config-item")).toBe(true);
+        expect(row.classList.contains(`${PANEL_CLASS}__sub`)).toBe(true);
+        expect(row.dataset.ssRow).toBeUndefined();
+    });
+
+    it("功能名那一行：开关跟着功能名走，整行可点", () => {
+        const row = query<HTMLElement>(
+            subtitleRowHtml("功能名", "说明", {
+                key: "demo::enabled",
+                html: switchControlHtml("demo::enabled", "启用", true),
+                toggles: true,
+            }),
+            "label",
+        )!;
+        expect(row.tagName).toBe("LABEL");
+        expect(row.dataset.ssRow).toBe("demo::enabled");
+        expect(row.querySelector("input")?.getAttribute("data-ss-switch")).toBe("demo::enabled");
+    });
+
+    it("功能名那一行：下拉当开关时不能用 label（点文案会拉开下拉）", () => {
+        const row = query<HTMLElement>(
+            subtitleRowHtml("功能名", "", {key: "demo::scope", html: selectControlHtml("demo::scope", [], "disabled")}),
+            "div",
+        )!;
+        expect(row.tagName).toBe("DIV");
+        expect(row.querySelector("select")).not.toBeNull();
+    });
+
+    it("开关行带上子行类名，供面板缩进", () => {
+        const row = query<HTMLElement>(switchRowHtml("demo::x", "标题", true, "说明"), "label")!;
+        expect(row.classList.contains(CHILD_CLASS)).toBe(true);
+        expect(row.dataset.ssRow).toBe("demo::x");
+        expect(row.querySelector(".b3-label__text")?.textContent).toBe("说明");
+    });
+
+    it("下拉行与文本行都是子行", () => {
+        expect(query<HTMLElement>(selectRowHtml("demo::m", "标题", [{value: "a", label: "A"}], "a"), "div")!
+            .classList.contains(CHILD_CLASS)).toBe(true);
+        expect(query<HTMLElement>(textRowHtml("demo::t", "标题", "值"), "div")!.classList.contains(CHILD_CLASS)).toBe(
+            true,
+        );
+    });
+
+    it("数字行：min / max / step 与单位", () => {
+        const root = parse(numberRowHtml("demo::n", "标题", 8, {min: 1, max: 10, step: 2, unit: "次"}));
+        const input = root.querySelector<HTMLInputElement>("input")!;
+        expect(input.type).toBe("number");
+        expect(input.value).toBe("8");
+        expect(input.getAttribute("min")).toBe("1");
+        expect(input.getAttribute("max")).toBe("10");
+        expect(input.getAttribute("step")).toBe("2");
+        expect(root.querySelector(".config-item__number")).not.toBeNull();
+        expect(root.querySelector(".config-item__unit")?.textContent).toBe("次");
+    });
+
+    it("数字行：没给界限时属性留空，也不生成单位容器", () => {
+        const root = parse(numberRowHtml("demo::n", "标题", 3));
+        const input = root.querySelector<HTMLInputElement>("input")!;
+        expect(input.getAttribute("min")).toBe("");
+        expect(input.getAttribute("step")).toBe("");
+        expect(root.querySelector(".config-item__number")).toBeNull();
+    });
+
+    it("文本行：值被转义、关掉拼写检查、可带占位文案", () => {
+        const root = parse(textRowHtml("demo::t", "标题", 'a"b', {placeholder: "提示"}));
+        const input = root.querySelector<HTMLInputElement>("input")!;
+        expect(input.type).toBe("text");
+        expect(input.value).toBe('a"b');
+        expect(input.getAttribute("spellcheck")).toBe("false");
+        expect(input.getAttribute("placeholder")).toBe("提示");
+    });
+
+    it("动作行是 button 元素，不参与表单提交", () => {
+        const button = query<HTMLButtonElement>(
+            buttonRowHtml("demo::run", "标题", "点我", {description: "说明"}),
+            "button",
+        )!;
+        expect(button.type).toBe("button");
+        expect(button.dataset.ssButton).toBe("demo::run");
+        expect(button.className).toContain("b3-button--outline");
+        expect(button.textContent).toBe("点我");
+    });
+
+    it("动作行在只读模式下是 disabled 的", () => {
+        const button = query<HTMLButtonElement>(
+            buttonRowHtml("demo::run", "标题", "点我", {disabled: true}),
+            "button",
+        )!;
+        expect(button.disabled).toBe(true);
+    });
+});
+
+describe("noteBodyHtml", () => {
+    it("一行一段，空行被丢掉", () => {
+        const root = parse(noteBodyHtml("第一行\n\n   \n第二行"));
+        expect([...root.querySelectorAll(".b3-label__text")].map((line) => line.textContent)).toEqual([
+            "第一行",
+            "第二行",
+        ]);
+    });
+
+    it("按名字替换占位符", () => {
+        expect(parse(noteBodyHtml("版本 {version}", {version: "1.0.1"})).textContent).toBe("版本 1.0.1");
+    });
+
+    it("没给值的占位符原样保留", () => {
+        expect(parse(noteBodyHtml("版本 {version}")).textContent).toBe("版本 {version}");
+    });
+
+    it("http(s) 链接渲染成可点链接，并把地址当文字", () => {
+        const anchor = query<HTMLAnchorElement>(
+            noteBodyHtml("见 {repo}", {repo: "https://github.com/wmy2981"}),
+            "a",
+        )!;
+        expect(anchor.getAttribute("href")).toBe("https://github.com/wmy2981");
+        expect(anchor.getAttribute("target")).toBe("_blank");
+        expect(anchor.getAttribute("rel")).toBe("noopener noreferrer");
+        expect(anchor.textContent).toBe("https://github.com/wmy2981");
+    });
+
+    it("labels 给了短写时用短写，地址仍是完整的", () => {
+        const anchor = query<HTMLAnchorElement>(
+            noteBodyHtml("见 {repo}", {repo: "https://github.com/wmy2981/x"}, {repo: "仓库"}),
+            "a",
+        )!;
+        expect(anchor.textContent).toBe("仓库");
+        expect(anchor.getAttribute("href")).toBe("https://github.com/wmy2981/x");
+    });
+
+    it("非 http(s) 的值只当纯文本", () => {
+        const root = parse(noteBodyHtml("路径 {path}", {path: "file:///tmp"}));
+        expect(root.querySelector("a")).toBeNull();
+        expect(root.textContent).toBe("路径 file:///tmp");
+    });
+
+    it("文案与替换值里的 HTML 都不会被当成标记", () => {
+        const root = parse(noteBodyHtml("<img src=x onerror=1> {v}", {v: "<script>"}));
+        expect(root.querySelector("img")).toBeNull();
+        expect(root.querySelector("script")).toBeNull();
+        expect(root.textContent).toBe("<img src=x onerror=1> <script>");
+    });
+
+    it("链接地址里的引号被转义，不会撑破属性", () => {
+        const html = noteBodyHtml("{v}", {v: 'https://example.com/?a="b"'});
+        expect(html).toContain("&quot;");
+        expect(parse(html).querySelector("a")?.getAttribute("href")).toBe('https://example.com/?a="b"');
+    });
+});
+
+describe("noteRowHtml", () => {
+    it("说明块整行铺满，带说明块与子行两个类名", () => {
+        const row = query<HTMLElement>(noteRowHtml("demo::about", noteBodyHtml("说明文字")), "div")!;
+        expect(row.classList.contains(`${PANEL_CLASS}__note`)).toBe(true);
+        expect(row.classList.contains(CHILD_CLASS)).toBe(true);
+        expect(row.dataset.ssRow).toBe("demo::about");
+        expect(row.querySelector(".b3-label__text")).not.toBeNull();
+    });
+});
+
+describe("PANEL_CSS", () => {
+    it("作用域限定在面板类名下，含移动端与窄屏两套规则", () => {
+        expect(PANEL_CSS).toContain(`.${PANEL_CLASS} {`);
+        expect(PANEL_CSS).toContain(`.${PANEL_CLASS}--mobile`);
+        expect(PANEL_CSS).toContain("@media (max-width: 750px)");
+        expect(PANEL_CSS).toContain(`.config-items > .${CHILD_CLASS}`);
+        expect(PANEL_CSS).toContain(".some-settings-dialog.b3-dialog__container");
+    });
+});
+
+describe("ensurePanelCss", () => {
+    const cssElement = (): HTMLStyleElement | null =>
+        document.getElementById(`${PANEL_CLASS}-local-css`) as HTMLStyleElement | null;
+
+    it("首次调用注入样式表", () => {
+        ensurePanelCss();
+        expect(cssElement()?.textContent).toBe(PANEL_CSS);
+    });
+
+    it("重复调用只有一份，内容不被重复追加", () => {
+        ensurePanelCss();
+        ensurePanelCss();
+        expect(document.querySelectorAll(`#${PANEL_CLASS}-local-css`)).toHaveLength(1);
+        expect(cssElement()?.textContent).toBe(PANEL_CSS);
+    });
+
+    it("页面里留着旧版本的样式表时重写成本版内容", () => {
+        const stale = document.createElement("style");
+        stale.id = `${PANEL_CLASS}-local-css`;
+        stale.textContent = "/* 旧版本 */";
+        document.head.append(stale);
+        ensurePanelCss();
+        expect(cssElement()?.textContent).toBe(PANEL_CSS);
+    });
+});
+
+describe("isMobileFrontend", () => {
+    it("只在 mobile / browser-mobile 下为真", () => {
+        mockState.frontend = "mobile";
+        expect(isMobileFrontend()).toBe(true);
+        mockState.frontend = "browser-mobile";
+        expect(isMobileFrontend()).toBe(true);
+        mockState.frontend = "desktop";
+        expect(isMobileFrontend()).toBe(false);
+        mockState.frontend = "desktop-window";
+        expect(isMobileFrontend()).toBe(false);
+    });
+});
