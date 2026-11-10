@@ -44,6 +44,7 @@ import {
 } from "./error";
 import {withoutMobileInputFocus} from "./frontend";
 import {preheatDialogLayer} from "./layer";
+import {openExternalLink} from "./link";
 import type {
     FeatureActionContext,
     FeatureCategory,
@@ -53,6 +54,7 @@ import type {
 } from "./types";
 import {FEATURE_CATEGORIES} from "./types";
 import {
+    actionButtonHtml,
     buttonRowHtml,
     ensurePanelCss,
     escapeHtml,
@@ -106,24 +108,6 @@ export interface SettingsPanelOptions {
 }
 
 const isReadonly = (): boolean => Boolean(window.siyuan?.config?.readonly || window.siyuan?.isPublish);
-
-/**
- * 打开说明块里的外链。
- *
- * 思源把「跳转前可否决」做成了插件事件：内核的 `openLink` 会 `emit("open-link", …)`，
- * 任一插件 `preventDefault()` 就取消本次跳转 —— 本插件的「外链跳转前确认」正是这样拦下来的。
- * 说明块里的链接是插件自己渲染的 `<a>`，走不到内核那条路，所以这里按同样的顺序补问一次；
- * 没人拦下时才用思源重写过的 `window.open`（桌面端交给系统浏览器，移动端交给原生桥）。
- */
-const openExternalLink = (href: string, event: MouseEvent): void => {
-    const detail = {href, originalHref: href, event};
-    for (const plugin of window.siyuan?.ws?.app?.plugins ?? []) {
-        if (plugin.eventBus?.emit("open-link", detail) === false) {
-            return;
-        }
-    }
-    window.open(href, "_blank");
-};
 
 /** 窄屏阈值，与内核折行 .config-item 的断点一致。 */
 const NARROW_WIDTH = 750;
@@ -640,23 +624,40 @@ export class SettingsPanel {
                     readonly,
                 );
             case "note":
-                // 只读说明块：没有取值，只把 i18n 文案里的 {version} / {repo} 之类的占位符填上
+                // 只读说明块：没有取值，只把 i18n 文案里的 {version} / {repo} 之类的占位符填上。
+                // 它底部的按钮与动作行同一套语义：只读 / 发布模式下禁用，点击统一走 bindPendingClick
                 return noteRowHtml(
                     bindKey(feature.id, field.key),
                     noteBodyHtml(this.t(field.text), field.values, field.labels),
+                    (field.actions ?? [])
+                        .map((action) =>
+                            actionButtonHtml(
+                                bindKey(feature.id, action.key),
+                                this.actionLabel(action.label, feature.id),
+                                {
+                                    disabled: readonly,
+                                    appearance: action.appearance,
+                                    tone: action.tone,
+                                    icon: action.icon,
+                                    iconSvg: action.iconSvg,
+                                },
+                            )
+                        )
+                        .join(""),
                 );
             case "button":
                 return buttonRowHtml(
                     bindKey(feature.id, field.key),
                     this.t(field.title),
-                    // 函数型 label 自己取 i18n，返回值就是文案；字符串型仍是 i18n key
-                    typeof field.label === "function" ?
-                        field.label(this.actionContext(feature.id)) :
-                        this.t(field.label),
+                    this.actionLabel(field.label, feature.id),
                     {
                         description: field.description ? this.t(field.description) : "",
                         // 动作行在只读/发布模式下不提供，避免点了没有反应
                         disabled: readonly,
+                        appearance: field.appearance,
+                        tone: field.tone,
+                        icon: field.icon,
+                        iconSvg: field.iconSvg,
                     },
                 );
             case "number":
@@ -732,19 +733,50 @@ export class SettingsPanel {
             const encoded = button.dataset.ssButton as string;
             bindPendingClick(button, encoded, () => {
                 const [featureId, key] = parseBindKey(encoded);
-                const field = this.options.features
-                    .find((feature) => feature.id === featureId)
-                    ?.settings.find((item) => item.kind === "button" && item.key === key);
-                if (!field || field.kind !== "button") {
-                    console.warn(`[some-settings-siyuan] action row "${encoded}" has no matching onClick, ignoring it`);
+                const action = this.actionOf(featureId, key);
+                if (!action) {
+                    console.warn(`[some-settings-siyuan] action "${encoded}" has no matching onClick, ignoring it`);
                     return;
                 }
                 return guardAsync(
                     `${featureId}.${key}`,
-                    () => Promise.resolve(field.onClick(this.actionContext(featureId))),
+                    () => Promise.resolve(action.onClick(this.actionContext(featureId))),
                 );
             });
         });
+    }
+
+    /**
+     * 动作按钮的文案：字符串是 i18n key；函数型每次打开面板求值，返回值直接当文案。
+     * 动作行与说明块底部的按钮都从这里取，两处不各写一份。
+     */
+    private actionLabel(
+        label: string | ((context: FeatureActionContext) => string),
+        featureId: string,
+    ): string {
+        return typeof label === "function" ? label(this.actionContext(featureId)) : this.t(label);
+    }
+
+    /**
+     * 按「功能 id + key」找一个动作：独立的动作行与说明块底部的按钮都能找到。
+     */
+    private actionOf(
+        featureId: string,
+        key: string,
+    ): {onClick: (context: FeatureActionContext) => void | Promise<void>;} | undefined {
+        const feature = this.options.features.find((item) => item.id === featureId);
+        for (const field of feature?.settings ?? []) {
+            if (field.kind === "button" && field.key === key) {
+                return field;
+            }
+            if (field.kind === "note") {
+                const action = field.actions?.find((item) => item.key === key);
+                if (action) {
+                    return action;
+                }
+            }
+        }
+        return undefined;
     }
 
     /**

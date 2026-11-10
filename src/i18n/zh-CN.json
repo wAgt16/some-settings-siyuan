@@ -206,6 +206,8 @@
   "feature.pluginReminder.name": "关于本插件",
   "feature.pluginReminder.desc": "本插件的性质、当前版本与问题反馈入口。",
   "pluginReminder.notice": "本插件由个人开发维护，不是思源官方功能，也不属于「思源笔记」项目本身。\n全部功能默认关闭，按需逐项启用；插件通过接管思源自身的设置入口与部分界面行为实现，思源大版本更新后个别功能可能失效，多个插件同时改动同一处界面时也可能互相影响。\n当前版本：v{version}。遇到异常时，先重载插件或关闭相关功能；仍未解决，可到仓库反馈。\nGitHub 仓库：{repo}",
+  "pluginReminder.starAction": "去 GitHub 点个 Star",
+  "pluginReminder.donateAction": "给插件开发者捐赠",
   "feature.configTransfer.name": "插件配置导入导出",
   "feature.configTransfer.desc": "把本插件存储目录下的全部配置导出为一段 JSON，也能从这段 JSON 导入。",
   "configTransfer.exportTitle": "导出配置",

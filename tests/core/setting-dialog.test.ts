@@ -291,6 +291,23 @@ describe("show：渲染", () => {
         expect(q('[data-ss-button="alpha::run"]')?.textContent).toBe("执行（运行期）");
     });
 
+    it("动作行的现成 SVG 图标（iconSvg）也能透传", async () => {
+        const iconSvg = '<svg viewBox="0 0 32 32"><path fill="#01beff" d="M0 0h1v1H0z"/></svg>';
+        const {q} = await open([featureOf("alpha", {
+            settings: [{
+                kind: "button",
+                key: "run",
+                title: "alpha.run",
+                label: "alpha.runLabel",
+                iconSvg,
+                appearance: "block",
+                onClick: () => undefined,
+            }],
+        })]);
+        const button = q<HTMLButtonElement>('[data-ss-button="alpha::run"]')!;
+        expect(button.querySelector("svg path")?.getAttribute("fill")).toBe("#01beff");
+    });
+
     it("功能没写说明时功能行只有标题", async () => {
         const {q} = await open([featureOf("alpha", {description: undefined})]);
         const row = q('[data-ss-row="alpha::enabled"]');
@@ -753,6 +770,64 @@ describe("动作行", () => {
         (panel as unknown as {options: {features: FeatureDefinition[];};}).options.features = [];
         expect(() => button.click()).not.toThrow();
         await vi.waitFor(() => expect(vi.mocked(console.warn)).toHaveBeenCalled());
+    });
+});
+
+describe("说明块底部的按钮", () => {
+    const withActions = (onClick = vi.fn()): FeatureDefinition[] => [
+        featureOf("alpha", {
+            settings: [
+                {
+                    kind: "note",
+                    key: "about",
+                    text: "alpha.about",
+                    values: {version: "1.0.1", repo: "https://github.com/wmy2981/some-settings-siyuan"},
+                    actions: [
+                        {key: "star", label: "alpha.runLabel", appearance: "block", icon: "iconGithub", onClick},
+                    ],
+                },
+            ],
+        }),
+    ];
+
+    it("点一下就跑 onClick，并按「功能 id + key」拿到上下文", async () => {
+        const onClick = vi.fn();
+        const opened = await open(withActions(onClick));
+        const button = opened.q<HTMLButtonElement>(".some-settings-panel__note-actions button")!;
+        expect(button.dataset.ssButton).toBe("alpha::star");
+        button.click();
+        await Promise.resolve();
+        expect(onClick).toHaveBeenCalledWith(expect.objectContaining({featureId: "alpha"}));
+    });
+
+    it("现成 SVG 图标（iconSvg）原样进到按钮里", async () => {
+        const iconSvg = '<svg viewBox="0 0 32 32"><path fill="#f15bb5" d="M0 0h1v1H0z"/></svg>';
+        const opened = await open([
+            featureOf("alpha", {
+                settings: [
+                    {
+                        kind: "note",
+                        key: "about",
+                        text: "alpha.about",
+                        actions: [
+                            {key: "donate", label: "alpha.runLabel", appearance: "block", iconSvg, onClick: vi.fn()},
+                        ],
+                    },
+                ],
+            }),
+        ]);
+        const button = opened.q<HTMLButtonElement>(".some-settings-panel__note-actions button")!;
+        // 不加工：原样内联，交给内核的 .b3-button svg 规则缩到 16px
+        expect(button.querySelector("svg path")?.getAttribute("fill")).toBe("#f15bb5");
+        expect(button.querySelector("use")).toBeNull();
+    });
+
+    it("只读模式下按钮禁用", async () => {
+        window.siyuan.config.readonly = true;
+        const onClick = vi.fn();
+        const opened = await open(withActions(onClick));
+        const button = opened.q<HTMLButtonElement>(".some-settings-panel__note-actions button")!;
+        expect(button.disabled).toBe(true);
     });
 });
 

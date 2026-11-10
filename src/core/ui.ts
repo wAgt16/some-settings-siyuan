@@ -247,24 +247,74 @@ export const textRowHtml = (
     }${options.disabled ? " disabled" : ""}/>
 </div>`;
 
+/** 动作按钮的外观选项：动作行与说明块底部的按钮共用。 */
+export interface ActionButtonOptions {
+    disabled?: boolean;
+    /** `outline`（默认）：次要按钮；`block`：撑满所在容器，形制照思源「关于」页那颗捐赠按钮。 */
+    appearance?: "outline" | "block";
+    /** `block` 的底色：`primary`（默认，思源主题色）或 `pink`（思源捐赠按钮那颗粉）。 */
+    tone?: "primary" | "pink";
+    /** 文字前的思源内置 symbol 名（如 `iconGithub`）。 */
+    icon?: string;
+    /** 文字前的现成 SVG 标记，原样插入：思源自己那张赞助图标就没有对应 symbol。 */
+    iconSvg?: string;
+    /** 由调用方补的位置类：同一颗按钮放在动作行里与放在说明块里，宽度来源不同。 */
+    className?: string;
+}
+
 /**
- * 原生风格的动作行：右侧一个 `b3-button--outline`。
+ * 动作按钮本体（不含行容器）。
+ *
+ * 只借思源自己的类：`b3-button` 打底，`b3-button--outline` 是设置里那种次要按钮，
+ * `b3-button--pink` 正是「关于」页捐赠按钮的底色；图标用 `b3-button__icon` 包一个内置 symbol。
+ */
+export const actionButtonHtml = (
+    key: string,
+    label: string,
+    options: ActionButtonOptions = {},
+): string => {
+    // iconSvg 是调用方给的现成标记（思源那张赞助图），原样插入；symbol 才包一层图标类
+    const icon = options.iconSvg ??
+        (options.icon ?
+            `<svg class="b3-button__icon"><use xlink:href="#${escapeHtml(options.icon)}"></use></svg>` :
+            "");
+    const modifier = options.appearance === "block" ?
+        (options.tone === "pink" ? " b3-button--pink" : "") :
+        " b3-button--outline";
+    const classes = `b3-button${modifier}${options.className ? ` ${options.className}` : ""}`;
+    const disabled = options.disabled ? " disabled" : "";
+    return `<button class="${classes}" type="button" data-ss-button="${escapeHtml(key)}"${disabled}>${icon}${
+        escapeHtml(label)
+    }</button>`;
+};
+
+/**
+ * 原生风格的动作行：右侧一个按钮。
  *
  * 只用于「点击即打开某个窗口」这类没有可持久化取值的入口。
  * 按钮不参与草稿：点击立刻执行，不受「取消 / 保存」影响。
+ *
+ * 外观两套：默认是靠右定宽 `fn__size200` 的次要按钮；`block` 则是外壳 `fn__size200` +
+ * 按钮 `fn__block`，与思源「关于」页那颗捐赠按钮同构，窄屏时外壳由面板媒体查询放开到整行。
  */
 export const buttonRowHtml = (
     key: string,
     title: string,
     label: string,
-    options: {description?: string; disabled?: boolean;} = {},
-): string =>
-    `<div class="fn__flex b3-label config-item ${CHILD_CLASS}" data-ss-row="${escapeHtml(key)}">
+    options: ActionButtonOptions & {description?: string;} = {},
+): string => {
+    const button = options.appearance === "block" ?
+        actionButtonHtml(key, label, {...options, className: "fn__block"}) :
+        actionButtonHtml(key, label, {...options, className: "fn__flex-center fn__size200"});
+    const control = options.appearance === "block" ?
+        `<div class="fn__flex-center fn__size200">${button}</div>` :
+        button;
+    return `<div class="fn__flex b3-label config-item ${CHILD_CLASS}" data-ss-row="${escapeHtml(key)}">
     ${mainHtml(title, options.description)}
     <span class="fn__space"></span>
-    <button class="b3-button b3-button--outline fn__flex-center fn__size200" type="button"
-    data-ss-button="${escapeHtml(key)}"${options.disabled ? " disabled" : ""}>${escapeHtml(label)}</button>
+    ${control}
 </div>`;
+};
 
 /**
  * 只读说明块的正文：一行一段，`{name}` 占位符按 values 替换。
@@ -297,11 +347,17 @@ export const noteBodyHtml = (
  *
  * 刻意不带 `fn__flex` —— 面板里其余每一行都是「左侧文案 + 右侧控件」，
  * 说明块不是设置项，没有控件可放，文案必须占满整行。
+ *
+ * `actionsHtml` 是这段说明配套的一组按钮：它们属于这段说明，不另起设置行。
+ * 有按钮时整行变成和其它行一样的「左侧文案 + 右侧控件」：文字占满剩余宽度，
+ * 按钮在右侧竖着叠、每颗 200px —— 与「导出配置」那些按钮同一个位置、同一个宽度。
  */
-export const noteRowHtml = (key: string, bodyHtml: string): string =>
-    `<div class="b3-label config-item ${PANEL_CLASS}__note ${CHILD_CLASS}" data-ss-row="${
-        escapeHtml(key)
-    }">${bodyHtml}</div>`;
+export const noteRowHtml = (key: string, bodyHtml: string, actionsHtml = ""): string =>
+    `<div class="b3-label config-item ${PANEL_CLASS}__note ${CHILD_CLASS}" data-ss-row="${escapeHtml(key)}">
+    <div class="${PANEL_CLASS}__note-body">${bodyHtml}</div>${
+        actionsHtml ? `<div class="${PANEL_CLASS}__note-actions">${actionsHtml}</div>` : ""
+    }
+</div>`;
 
 /**
  * 面板的全部局部样式：只在插件自己的弹窗作用域内生效。
@@ -473,6 +529,30 @@ export const PANEL_CSS = `
 .${PANEL_CLASS} .${PANEL_CLASS}__note .b3-label__text + .b3-label__text {
     margin-top: 6px;
 }
+/* 说明块的动作按钮：与面板里其它行同一套位置 —— 文字让出右侧，按钮竖着叠在右边，
+   每颗 200px、整列上下居中（「导出配置」那些按钮正是这个位置和宽度）。
+   文字因此会被压窄一点，这是对的：一段说明配一组入口，本来就该是「左文右按钮」。
+   窄屏放不下，由下面的媒体查询改回「文字在上、按钮整行在下」。 */
+.${PANEL_CLASS} .${PANEL_CLASS}__note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.${PANEL_CLASS} .${PANEL_CLASS}__note-body {
+    flex: 1 1 0;
+    min-width: 0;
+}
+.${PANEL_CLASS} .${PANEL_CLASS}__note-actions {
+    display: flex;
+    flex: 0 0 200px;
+    width: 200px;
+    flex-direction: column;
+    gap: 8px;
+}
+.${PANEL_CLASS} .${PANEL_CLASS}__note-actions .b3-button {
+    width: 100%;
+    box-sizing: border-box;
+}
 .${PANEL_CLASS} .${PANEL_CLASS}__note a {
     color: var(--b3-theme-primary);
     word-break: break-all;
@@ -594,6 +674,18 @@ export const PANEL_CSS = `
         width: 100%;
         max-width: 100%;
         margin-top: 6px;
+    }
+    /* 窄屏放不下「左文右按钮」：说明块改回上下布局，按钮撑满整行 ——
+       200px 在手机上只剩半屏，两颗各占一半更容易误点 */
+    .b3-dialog__body .${PANEL_CLASS} .${PANEL_CLASS}__note {
+        display: block;
+    }
+    .b3-dialog__body .${PANEL_CLASS} .${PANEL_CLASS}__note-actions {
+        width: auto;
+        margin-top: 12px;
+    }
+    .b3-dialog__body .${PANEL_CLASS} .${PANEL_CLASS}__note-actions .b3-button {
+        width: 100%;
     }
     .b3-dialog__body .${PANEL_CLASS} .config-item__number {
         flex-wrap: nowrap;

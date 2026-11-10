@@ -206,6 +206,8 @@
   "feature.pluginReminder.name": "About this plugin",
   "feature.pluginReminder.desc": "What this plugin is, its current version, and where to report problems.",
   "pluginReminder.notice": "This plugin is built and maintained by an individual. It is not an official SiYuan feature and is not part of the SiYuan project itself.\nEvery feature is off by default and is enabled one by one; the plugin works by taking over SiYuan's own settings entry and parts of its interface behaviour, so individual features may break after a major SiYuan update, and plugins that touch the same part of the interface can interfere with each other.\nCurrent version: v{version}. When something misbehaves, reload the plugin or turn the related feature off first; if the problem remains, please report it in the repository.\nGitHub repository: {repo}",
+  "pluginReminder.starAction": "Star on GitHub",
+  "pluginReminder.donateAction": "Donate to the plugin developer",
   "feature.configTransfer.name": "Import and export this plugin's configuration",
   "feature.configTransfer.desc": "Writes every configuration file in this plugin's storage directory into one JSON document, and reads such a document back.",
   "configTransfer.exportTitle": "Export the configuration",

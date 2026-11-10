@@ -10,6 +10,7 @@ import {
     it,
 } from "vitest";
 import {
+    actionButtonHtml,
     buttonRowHtml,
     ensurePanelCss,
     escapeHtml,
@@ -266,12 +267,83 @@ describe("行容器", () => {
         expect(button.textContent).toBe("点我");
     });
 
+    it("整块外观撑满 200px 外壳，粉色底 + 现成 SVG 原样内联", () => {
+        const root = parse(
+            buttonRowHtml("demo::donate", "标题", "给插件开发者捐赠", {
+                appearance: "block",
+                tone: "pink",
+                iconSvg: '<svg viewBox="0 0 32 32"><path fill="#fff"></path></svg>',
+            }),
+        );
+        const button = root.querySelector<HTMLButtonElement>("button")!;
+        expect(button.className).not.toContain("b3-button--outline");
+        expect(button.className).toContain("b3-button--pink");
+        expect(button.className).toContain("fn__block");
+        expect(button.dataset.ssButton).toBe("demo::donate");
+        expect(button.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 32 32");
+        expect(button.querySelector("use")).toBeNull();
+        expect(button.textContent.trim()).toBe("给插件开发者捐赠");
+        expect(root.querySelector(".fn__size200")?.contains(button)).toBe(true);
+    });
+
+    it("整块外观不写 tone 时用主题色，图标同样内联", () => {
+        const button = query<HTMLButtonElement>(
+            buttonRowHtml("demo::star", "标题", "Star on GitHub", {appearance: "block", icon: "iconGithub"}),
+            "button",
+        )!;
+        expect(button.className).toContain("b3-button");
+        expect(button.className).not.toContain("b3-button--pink");
+        expect(button.className).toContain("fn__block");
+        expect(button.querySelector("use")?.getAttribute("xlink:href")).toBe("#iconGithub");
+        expect(button.textContent.trim()).toBe("Star on GitHub");
+    });
+
     it("动作行在只读模式下是 disabled 的", () => {
         const button = query<HTMLButtonElement>(
             buttonRowHtml("demo::run", "标题", "点我", {disabled: true}),
             "button",
         )!;
         expect(button.disabled).toBe(true);
+    });
+});
+
+describe("noteRowHtml：底部按钮", () => {
+    it("不带按钮时整块只有文字", () => {
+        const root = parse(noteRowHtml("demo::about", "<div>说明</div>"));
+        expect(root.querySelector(".some-settings-panel__note-actions")).toBeNull();
+    });
+
+    it("带按钮时是「左侧文字 + 右侧按钮」两栏，各自带绑定标识", () => {
+        const root = parse(
+            noteRowHtml(
+                "demo::about",
+                "<div>说明</div>",
+                actionButtonHtml("demo::star", "Star on GitHub", {appearance: "block", icon: "iconGithub"}) +
+                    actionButtonHtml("demo::donate", "给插件开发者捐赠", {
+                        appearance: "block",
+                        tone: "pink",
+                        iconSvg: '<svg viewBox="0 0 32 32"><path fill="#fff"></path></svg>',
+                    }),
+            ),
+        );
+        const row = root.querySelector(".some-settings-panel__note")!;
+        // 与其它行同构：文字占一栏，按钮那一栏排在同一行的右侧
+        expect([...row.children].map((child) => child.className)).toEqual([
+            "some-settings-panel__note-body",
+            "some-settings-panel__note-actions",
+        ]);
+        expect(row.querySelector(".some-settings-panel__note-body")?.textContent).toBe("说明");
+        const actions = row.querySelector(".some-settings-panel__note-actions")!;
+        const buttons = [...actions.querySelectorAll("button")];
+        expect(buttons.map((button) => button.dataset.ssButton)).toEqual(["demo::star", "demo::donate"]);
+        expect(buttons[0].className).not.toContain("b3-button--outline");
+        expect(buttons[1].className).toContain("b3-button--pink");
+    });
+
+    it("没有按钮时文字仍占满整行（不出现空的按钮栏）", () => {
+        const root = parse(noteRowHtml("demo::about", "<div>说明</div>"));
+        const row = root.querySelector(".some-settings-panel__note")!;
+        expect([...row.children].map((child) => child.className)).toEqual(["some-settings-panel__note-body"]);
     });
 });
 

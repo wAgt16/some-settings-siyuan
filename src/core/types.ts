@@ -118,6 +118,33 @@ export interface FeatureActionContext {
 }
 
 /**
+ * 说明块（`kind: "note"`）底部的一个动作按钮。
+ *
+ * 与独立的动作行是同一套东西：没有可持久化取值、不进草稿、不受「取消 / 保存」影响、
+ * 只读 / 发布模式下禁用、点击由面板统一走 `bindPendingClick`。
+ * 区别只在于它属于这段说明（「去点星」「捐赠」这类），单独占一行反而把一段话拆成了三条设置，
+ * 所以它挂在 `note` 上：桌面端与其它行同构 —— 文字在左、按钮竖着叠在右侧（每颗 200px），
+ * 窄屏放不下时才落到文字下面、各撑满整行。
+ */
+export interface NoteAction {
+    /** 与动作行的 key 同一套规则：功能内唯一，面板按「功能 id + key」绑定点击。 */
+    key: string;
+    /** 按钮文字。字符串是 i18n key；函数型每次打开面板求值，返回值直接当文案。 */
+    label: string | ((context: FeatureActionContext) => string);
+    /** 与动作行相同的外观选项，见 `SettingField` 的 `button`。 */
+    appearance?: "outline" | "block";
+    tone?: "primary" | "pink";
+    /** 文字前的思源内置 symbol 名（如 `iconGithub`）。 */
+    icon?: string;
+    /**
+     * 文字前的现成 SVG 标记，原样插入 —— 思源自己那张赞助图标就没有对应 symbol。
+     * 只能是代码里的常量，不要拼接运行期字符串。
+     */
+    iconSvg?: string;
+    onClick: (context: FeatureActionContext) => void | Promise<void>;
+}
+
+/**
  * 设置面板里的一行控件。
  *
  * 刻意没有分组型字段：面板是「分类标题 + 设置行」的一层结构，
@@ -175,12 +202,16 @@ export type SettingField =
          * `text` 是 i18n key；值按 `\n` 分段，其中的 `{name}` 占位符由 `values` 逐项替换，
          * 替换值本身是 http(s) 链接时渲染成可点的链接，链接文字默认就是地址本身，
          * `labels` 里给了同名的短写时用它。
+         *
+         * `actions` 是排在说明文字**下方**的一组按钮（见 `NoteAction`）：说明块长起来以后，
+         * 与它配套的入口跟在文字后面比另起几行更清楚，也不会被当成三项独立的设置。
          */
         kind: "note";
         key: string;
         text: string;
         values?: Record<string, string>;
         labels?: Record<string, string>;
+        actions?: NoteAction[];
     }
     | {
         /**
@@ -191,6 +222,18 @@ export type SettingField =
         key: string;
         title: string;
         description?: string;
+        /**
+         * 按钮外观。默认 `outline` —— 内核设置里那种靠右的次要按钮，定宽 200px。
+         * `block` 撑满这一格宽度，与思源「关于」页那颗捐赠按钮同构：
+         * 桌面端 200px、窄屏由面板的媒体查询放开到整行。
+         */
+        appearance?: "outline" | "block";
+        /** `block` 外观的底色：`primary`（默认，思源主题色）或 `pink`（思源捐赠按钮那颗粉）。 */
+        tone?: "primary" | "pink";
+        /** 按钮文字前的思源内置 symbol 名（如 `iconGithub`）；不写就只有文字。 */
+        icon?: string;
+        /** 按钮文字前的现成 SVG 标记，原样插入（思源自己那张赞助图标没有对应 symbol）。 */
+        iconSvg?: string;
         /**
          * 按钮文字。字符串是 i18n key；给函数时每次打开面板求值，
          * **返回值直接当文案用**（函数内部自己取 i18n），用于文案要跟着运行期状态变的入口
