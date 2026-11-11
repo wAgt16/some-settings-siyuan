@@ -42,6 +42,42 @@ export const PANEL_CLASS = "some-settings-panel";
  */
 const CHILD_CLASS = `${PANEL_CLASS}__child`;
 
+/**
+ * 「一个功能的最后一个子行」的标记类名。
+ *
+ * 子行是平铺在 `.config-items` 里的（页签内不允许分组容器），CSS 的 `:last-child`
+ * 看见的是整页最后一行、而不是某个功能的最后一个子行。层级引导线要在最后一个子行上收尾
+ * （画成 └，而不是一直画到行底、看起来像还有下一项），所以这一处只能由
+ * `setting-dialog.ts` 拼行时显式标记，用法与 `config-item--last-visible` 相同。
+ */
+export const LAST_CHILD_CLASS = `${CHILD_CLASS}--last`;
+
+/**
+ * 给一段「某个功能名下面的全部子行」HTML 里的最后一行打上 `LAST_CHILD_CLASS`。
+ *
+ * 与 `setting-dialog.ts` 的 `markLastRow()` 同一套做法：认的是最后一个带 `CHILD_CLASS`
+ * 这个整词的 class 属性 —— 说明块这类行内部还有自己的元素与 class（段落是
+ * `b3-label__text`），照着最后一个 class 属性下手会标记到段落的头上。
+ * 没有子行（功能只有一个开关）时原样返回。
+ */
+export const markLastChildRow = (rowsHtml: string): string => {
+    const pattern = /class="([^"]*)"/g;
+    let index = -1;
+    let match = pattern.exec(rowsHtml);
+    while (match) {
+        if (match[1].split(/\s+/).includes(CHILD_CLASS)) {
+            index = match.index;
+        }
+        match = pattern.exec(rowsHtml);
+    }
+    if (index < 0) {
+        return rowsHtml;
+    }
+    const head = rowsHtml.slice(0, index + 'class="'.length);
+    const tail = rowsHtml.slice(index + 'class="'.length);
+    return `${head}${LAST_CHILD_CLASS} ${tail}`;
+};
+
 export const isMobileFrontend = (): boolean => {
     const frontend = getFrontend();
     return frontend === "mobile" || frontend === "browser-mobile";
@@ -498,17 +534,48 @@ export const PANEL_CSS = `
    基数跟着行自己的内边距走 —— 桌面端内核给 .b3-label 的是 24px，
    窄屏下面板把行压到 10px（见下面的媒体查询），所以两边各写一条。 */
 .${PANEL_CLASS} .config-items > .${CHILD_CLASS} {
+    /* 引导线的定位基准：竖线与横折都相对这一行摆 */
+    position: relative;
     padding-inline-start: 40px;
 }
-/* 面板里的文案只有两种角色：功能名（父项）与它下面的设置项、说明。
-   只有功能名加粗；「重试次数」「重试间隔」这类子设置项一律常规字重，
-   说明再淡一档。之前把所有 .config-item__main 都加粗，子设置项跟着变粗，
-   和它的父项抢视线。 */
-.${PANEL_CLASS} .${PANEL_CLASS}__sub > .config-item__main {
-    font-weight: 600;
+/* 层级引导线 -------------------------------------------------------------
+   缩进之后「这些行属于上面那个功能」还差一口气，再补一条树形引导线：
+   一条竖线把同一功能的所有子行串起来，每一行在自己的垂直中线处伸出一小段横折指向文案。
+   线画在子行自己的伪元素上，所以它天然从功能名那一行的下沿开始，
+   不需要为它加任何分组容器（页签里的行必须保持平铺，多一层就多一层层级）。
+   最后一个子行带 LAST_CHILD_CLASS（由 markLastChildRow 在拼行时打上），
+   竖线只画到折角处、收成 └，否则它会一直画到行的下沿，看着像下面还有内容没显示完。
+   颜色取 --b3-border-color，与行间分割线同色，深浅主题都跟着思源走。 */
+.${PANEL_CLASS} .config-items > .${CHILD_CLASS}::before,
+.${PANEL_CLASS} .config-items > .${CHILD_CLASS}::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    background-color: var(--b3-border-color);
 }
+/* 竖线：从行顶画到行底，与上下相邻的子行接成一条连续的线 */
+.${PANEL_CLASS} .config-items > .${CHILD_CLASS}::before {
+    inset-inline-start: 20px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+}
+/* 横折：从竖线伸到文案左侧，留一小段空隙，不贴字 */
+.${PANEL_CLASS} .config-items > .${CHILD_CLASS}::after {
+    inset-inline-start: 20px;
+    top: 50%;
+    width: 10px;
+    height: 1px;
+}
+/* 最后一行：竖线到折角为止 */
+.${PANEL_CLASS} .config-items > .${CHILD_CLASS}--last::before {
+    bottom: 50%;
+}
+/* 面板里的文案统一常规字重：功能名（父项）与它下面的子设置项、动作行都不加粗。
+   「哪个设置属于哪个功能」由子行的缩进与左侧那条层级引导线表达，不再靠字重——
+   加粗功能名会把两侧的视觉重心都拉到标题上，参数行被压成一片灰。
+   因此这里不给任何一类行单独调字重；说明（.b3-label__text）只换颜色，与内核一致。 */
 .${PANEL_CLASS} .config-item__main .b3-label__text {
-    font-weight: 400;
     color: var(--b3-theme-on-surface);
 }
 .${PANEL_CLASS} .config-item:last-child,
@@ -636,6 +703,15 @@ export const PANEL_CSS = `
     /* 子行缩进跟着窄屏这 10px 走；选择器多带 .config-item 一级，才压得过上面那条简写 */
     .b3-dialog__body .${PANEL_CLASS} .b3-label.config-item.${CHILD_CLASS} {
         padding-inline-start: 26px;
+    }
+    /* 引导线跟着窄屏这 26px 一起收：竖线挪到 12px，横折到 20px 为止，
+       与文案之间同样留 6px。缩进改了这里不改，线会压到文字上。 */
+    .b3-dialog__body .${PANEL_CLASS} .config-items > .${CHILD_CLASS}::before,
+    .b3-dialog__body .${PANEL_CLASS} .config-items > .${CHILD_CLASS}::after {
+        inset-inline-start: 12px;
+    }
+    .b3-dialog__body .${PANEL_CLASS} .config-items > .${CHILD_CLASS}::after {
+        width: 8px;
     }
     .b3-dialog__body .${PANEL_CLASS} .config-item__main {
         flex: 1 1 100%;

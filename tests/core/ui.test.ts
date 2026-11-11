@@ -15,7 +15,9 @@ import {
     ensurePanelCss,
     escapeHtml,
     isMobileFrontend,
+    LAST_CHILD_CLASS,
     mainHtml,
+    markLastChildRow,
     noteBodyHtml,
     noteRowHtml,
     numberRowHtml,
@@ -414,7 +416,46 @@ describe("noteRowHtml", () => {
     });
 });
 
+describe("markLastChildRow", () => {
+    it("只给最后一行子行加标记，前面那些不动", () => {
+        const html = markLastChildRow(switchRowHtml("demo::a", "甲", true) + numberRowHtml("demo::b", "乙", 1));
+        const rows = [...parse(html).children] as HTMLElement[];
+        expect(rows).toHaveLength(2);
+        expect(rows[0].classList.contains(LAST_CHILD_CLASS)).toBe(false);
+        expect(rows[1].classList.contains(LAST_CHILD_CLASS)).toBe(true);
+        // 原有的类名与取值属性都不受影响
+        expect(rows[1].classList.contains(CHILD_CLASS)).toBe(true);
+        expect(rows[1].dataset.ssRow).toBe("demo::b");
+    });
+
+    it("说明块内部的段落不会被误当成末行", () => {
+        const html = markLastChildRow(
+            switchRowHtml("demo::a", "甲", true) + noteRowHtml("demo::n", noteBodyHtml("说明")),
+        );
+        const rows = [...parse(html).children] as HTMLElement[];
+        expect(rows[1].classList.contains(LAST_CHILD_CLASS)).toBe(true);
+        expect(rows[1].querySelector(".b3-label__text")?.classList.contains(LAST_CHILD_CLASS)).toBe(false);
+    });
+
+    it("没有子行时原样返回", () => {
+        expect(markLastChildRow("")).toBe("");
+    });
+});
+
 describe("PANEL_CSS", () => {
+    it("子行带层级引导线：竖线与横折都画在子行自己的伪元素上", () => {
+        expect(PANEL_CSS).toContain(`.config-items > .${CHILD_CLASS}::before`);
+        expect(PANEL_CSS).toContain(`.config-items > .${CHILD_CLASS}::after`);
+        expect(PANEL_CSS).toContain(`.config-items > .${LAST_CHILD_CLASS}::before`);
+        // 竖线只存在子行上：功能名那一行没有被画出线来
+        expect(PANEL_CSS).not.toContain("__sub::before");
+    });
+
+    it("功能名那一行不加粗：面板里没有任何字重抬升", () => {
+        // 层级只由缩进与引导线表达（回归：曾把 __sub 的标题设为 600）
+        expect(PANEL_CSS).not.toMatch(/font-weight:\s*(bold|[5-9]00)/);
+    });
+
     it("作用域限定在面板类名下，含移动端与窄屏两套规则", () => {
         expect(PANEL_CSS).toContain(`.${PANEL_CLASS} {`);
         expect(PANEL_CSS).toContain(`.${PANEL_CLASS}--mobile`);

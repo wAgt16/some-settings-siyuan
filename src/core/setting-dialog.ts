@@ -59,6 +59,7 @@ import {
     ensurePanelCss,
     escapeHtml,
     isMobileFrontend,
+    markLastChildRow,
     noteBodyHtml,
     noteRowHtml,
     numberRowHtml,
@@ -525,9 +526,13 @@ export class SettingsPanel {
                         inline || undefined,
                     ),
                 );
+                // 子行先各自成串，再给这个功能的最后一行打上标记：层级引导线要在那里收尾（画成 └）。
+                // 不能交给 CSS 的 :last-child —— 行是跨功能平铺的，它只看得见整页最后一行。
+                const childRows: string[] = [];
                 feature.settings
                     .filter((field) => field !== toggle && field !== inlineSelect)
-                    .forEach((field) => rows.push(this.fieldHtml(feature, field, draft, readonly)));
+                    .forEach((field) => childRows.push(this.fieldHtml(feature, field, draft, readonly)));
+                rows.push(markLastChildRow(childRows.join("")));
             });
             // 页签只在这里出现一次：顺序、文案与图标都由这一处决定，默认打开第一个有内容的页签
             tabs.push({

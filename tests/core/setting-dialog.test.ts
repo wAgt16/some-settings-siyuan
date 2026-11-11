@@ -258,6 +258,17 @@ describe("show：渲染", () => {
         expect(q('[data-ss-button="alpha::run"]')?.textContent).toBe("点我执行");
     });
 
+    it("每个功能的最后一个子行带上收尾标记，层级引导线在那里画成折角", async () => {
+        const {qa} = await open([
+            featureOf("alpha", {category: "editor"}),
+            featureOf("secondary", {category: "editor"}),
+        ]);
+        const marked = qa(`.${PANEL_CLASS}__child--last`);
+        // 两个功能各一个：末行是那个功能自己的最后一行，不是整页的最后一行
+        expect(marked).toHaveLength(2);
+        expect(marked.map((row) => row.dataset.ssRow)).toEqual(["alpha::run", "secondary::run"]);
+    });
+
     it("说明块把占位符换成值，链接用短写显示", async () => {
         const {q} = await open();
         const note = q('[data-ss-row="alpha::about"]');
