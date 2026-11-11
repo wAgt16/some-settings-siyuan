@@ -90,6 +90,7 @@ Categories follow the native SiYuan feature each setting affects, and match the 
 | -------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Aliyun OSS bucket usage          | both       | Adds a usage button to the S3 storage settings that reads the bucket's storage size and object count with the credentials saved there; hidden when the endpoint is not Aliyun |
 | Custom marketplace icons         | both       | Replaces the icon of an installed marketplace package; the image is stored under `icons/` in the plugin directory, and saving one turns the feature on                        |
+| Hide downloaded donation buttons | both       | Hides heart-shaped donation buttons on cards in every downloaded package list and the update list; other actions and package details stay unchanged                           |
 | Syntax highlighting for snippets | both       | Colours the snippet editor using SiYuan's own highlight.js and current code theme                                                                                             |
 | Console log viewer               | mobile     | Collects console output from the moment the plugin loads and shows the full log, with copy-all and clear                                                                      |
 

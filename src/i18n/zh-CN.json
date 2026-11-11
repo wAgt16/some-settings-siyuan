@@ -29,6 +29,8 @@
   "feature.headingLevelIcon.desc": "引用列表与搜索面板中的标题块改用 H1～H6 图标，层级数字显示在右下角。",
   "feature.bazaarCustomIcon.name": "集市包自定义图标",
   "feature.bazaarCustomIcon.desc": "给「设置 - 集市 - 已下载」里的集市包换一张自己的图标；图标保存在本插件目录下，只影响本机，随思源同步。",
+  "feature.hideBazaarDownloadedDonate.name": "隐藏集市已下载页的捐赠按钮",
+  "feature.hideBazaarDownloadedDonate.desc": "隐藏「设置 - 集市 - 已下载」各类型列表与更新列表里集市包卡片上的心形捐赠按钮，不影响收藏、设置、卸载、开关及包详情页。",
   "bazaarIcon.manageTitle": "自定义图标",
   "bazaarIcon.manageDesc": "按作者/包名管理已安装集市包的图标；保存图标会自动打开本功能，之后的开关只决定是否把图标贴回集市列表。",
   "bazaarIcon.manageAction": "管理图标",

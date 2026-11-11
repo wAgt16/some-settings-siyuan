@@ -29,6 +29,8 @@
   "feature.headingLevelIcon.desc": "Uses the H1-H6 icons for heading blocks in the reference list and the search panel, with the level drawn in the bottom right corner.",
   "feature.bazaarCustomIcon.name": "Custom icons for marketplace packages",
   "feature.bazaarCustomIcon.desc": "Replaces the icon of any installed package in Settings - Marketplace - Downloaded. The icons live in the plugin's own directory, affect this client only and sync with SiYuan.",
+  "feature.hideBazaarDownloadedDonate.name": "Hide donation buttons in downloaded marketplace lists",
+  "feature.hideBazaarDownloadedDonate.desc": "Hides the heart-shaped donation button on package cards in every package type and the update list under Settings - Marketplace - Downloaded. Ratings, settings, uninstall, switches and package details stay unchanged.",
   "bazaarIcon.manageTitle": "Custom icons",
   "bazaarIcon.manageDesc": "Manages icons for installed marketplace packages by author/package name; saving an icon turns the feature on, and the switch afterwards only controls whether the icons are applied.",
   "bazaarIcon.manageAction": "Manage icons",
