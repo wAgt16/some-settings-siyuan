@@ -56,6 +56,17 @@ export const attachProblems = (problems: string[]): Error & {problems: string[];
 };
 
 /**
+ * 两份配置在 schema 意义上是否相同。
+ *
+ * 值按 JSON 比较：导入的配置可能带嵌套对象，`!==` 会把它们全判成不同。
+ * 设置面板靠它在写盘前挡掉「下拉重选同一项」「开关重设同一状态」这类没有改动的改动。
+ */
+export const sameConfig = (left: FeatureConfig, right: FeatureConfig): boolean => {
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    return [...keys].every((key) => JSON.stringify(left[key]) === JSON.stringify(right[key]));
+};
+
+/**
  * 比较写入值与读回值，返回差异描述；一致时返回空串。
  * 只比较写入时真正用到的键，避免宿主额外字段造成误报；
  * 值按 JSON 比较 —— 导入不认识的配置时值可能带嵌套对象，`!==` 会把它们全判成不一致。
@@ -238,19 +249,6 @@ export class ConfigStore {
     }
 
     /**
-     * 立即写盘。
-     *
-     * 注意：只写这一个功能自己的文件，不牵动别的功能；磁盘与内存态在这一步一起更新。
-     */
-    async saveNow(id: string): Promise<void> {
-        const entry = this.entries.get(id);
-        if (!entry) {
-            return;
-        }
-        await this.plugin.saveData(storageNameOf(id), entry.config);
-    }
-
-    /**
      * 目录里此刻有哪些配置文件。
      *
      * 这是导出 / 导入 / 清除的共同入口：目标集合由磁盘决定，不受声明里的 enabled、
@@ -285,7 +283,7 @@ export class ConfigStore {
      *
      * 写完立刻读回的理由：宿主 saveData 的 Promise 在文件真的落盘前就可能 resolve，
      * code 非 0 时也照样兑现（宿主的消息处理只拦负数 code），光看「没报错」不足以说明存住了。
-     * 读回不一致就抛出，让面板保持打开、把真实原因暴露出来，
+     * 读回不一致就抛出，让调用方把控件退回磁盘上的值、把真实原因暴露出来，
      * 而不是等用户下次打开时发现又变回默认值。
      */
     private async writeFiles(files: {storageName: string; value: FeatureConfig;}[]): Promise<void> {
@@ -316,53 +314,40 @@ export class ConfigStore {
     }
 
     /**
-     * 批量保存（设置面板点「保存」时调用）。
+     * 合并 patch 后立即落盘，并通知订阅者 —— 设置面板的每一次控件改动都走这里。
      *
-     * 先按每个功能的 schema 归一化并把问题收齐，一旦有问题就整体不写，
-     * 让用户能一次性看到全部问题；校验通过才逐个落盘，最后统一通知订阅者。
+     * 顺序固定为「按 schema 归一化 → 合并内存态 → 写盘 → 读回校验 → 通知」：
+     * - 与当前值相同的改动不写盘：下拉重选同一项、开关重设同一状态都算没改；
+     * - 写盘失败或读回不一致时把内存态退回改动之前，再把问题抛给调用方 ——
+     *   界面据此把控件改回磁盘上的值，不允许停在「看着存住了、其实没存」的状态。
      */
-    async saveMany(drafts: Record<string, FeatureConfig>): Promise<void> {
-        const prepared: {id: string; config: FeatureConfig;}[] = [];
-        const problems: string[] = [];
-        Object.keys(drafts).forEach((id) => {
-            const entry = this.entries.get(id);
-            if (!entry) {
-                problems.push(`${id}: no config store entry for this feature`);
-                return;
-            }
-            const warnings: string[] = [];
-            const config = normalizeConfig(entry.definition.settings, drafts[id], (message) => warnings.push(message));
-            warnings.forEach((warning) => problems.push(`${id}: ${warning}`));
-            prepared.push({id, config});
-        });
-        if (problems.length > 0) {
-            throw attachProblems(problems);
-        }
-
-        prepared.forEach(({id, config}) => {
-            const entry = this.entries.get(id);
-            if (entry) {
-                entry.config = config;
-            }
-        });
-        await this.writeFiles(prepared.map(({id, config}) => ({storageName: storageNameOf(id), value: config})));
-        prepared.forEach(({id}) => this.notify(id));
-    }
-
-    /** 合并 patch 后落盘，并通知订阅者。写失败时抛出，由调用方回滚 UI。 */
     async patch(id: string, patch: FeatureConfig): Promise<void> {
         const entry = this.entries.get(id);
         if (!entry) {
             return;
         }
+        const previous = entry.config;
         const warnings: string[] = [];
-        entry.config = normalizeConfig(
+        const next = normalizeConfig(
             entry.definition.settings,
-            {...entry.config, ...patch},
+            {...previous, ...patch},
             (message) => warnings.push(message),
         );
         warnings.forEach((warning) => console.warn(`[some-settings-siyuan] ${warning}`));
-        await this.saveNow(id);
+        if (sameConfig(previous, next)) {
+            return;
+        }
+        entry.config = next;
+        try {
+            await this.writeFiles([{storageName: storageNameOf(id), value: next}]);
+        } catch (error) {
+            // 只在本功能的内存态仍是这次写入的值时才回退：期间若已有更晚的改动落盘，
+            // 用旧值覆盖会把那次改动一起抹掉。
+            if (entry.config === next) {
+                entry.config = previous;
+            }
+            throw error;
+        }
         this.notify(id);
     }
 
@@ -473,7 +458,7 @@ export class ConfigStore {
         return {applied, skipped};
     }
 
-    /** 插件卸载时收尾：清掉订阅者，不再需要延迟写盘（保存已改为显式提交）。 */
+    /** 插件卸载时收尾：清掉订阅者。待写的改动由设置面板在关闭时自己补上。 */
     dispose(): void {
         this.listeners.clear();
     }

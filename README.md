@@ -87,6 +87,8 @@ plugin adds no top bar button, no status bar item and no dock item.
 
 ## Notes
 
+* Every change is written to that feature's own configuration file straight away: the panel has no Save button, and
+  closing it loses nothing.
 * No per-item reset: to restore one item, export the configuration, edit it and import it again, or clear it all.
 * Both reconnect features reload the whole frontend; note content lives in the kernel, so a reload loses nothing.
 * The console log only collects from the moment its switch is on, so logs from plugin startup are never recorded.
