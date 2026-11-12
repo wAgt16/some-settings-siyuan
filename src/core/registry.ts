@@ -43,6 +43,7 @@ import mobileRefPanelHeight from "../features/mobile-ref-panel-height";
 import mobileSelectNative from "../features/mobile-select-native";
 import mobileSyncButton from "../features/mobile-sync-button";
 import modalBlur from "../features/modal-blur";
+import newDocFixedTarget from "../features/new-doc-fixed-target";
 import ossUsage from "../features/oss-usage";
 import pluginReminder from "../features/plugin-reminder";
 import recordingWindow from "../features/recording-window";
@@ -81,6 +82,7 @@ export const FEATURES: FeatureDefinition[] = [
     agentToolCallDetail,
     refCrumbsGuide,
     dailyNoteDirect,
+    newDocFixedTarget,
     firstDocIcon,
     externalLinkConfirm,
     kernelReconnectButton,

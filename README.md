@@ -20,6 +20,7 @@ Categories follow the native SiYuan feature each setting affects, and match the 
 
 * Never remember the code language
 * Create the daily note directly
+* Create new documents at a fixed location
 * Confirm before opening a web link
 * File size and metadata in the asset menu
 * Create a file in assets from the slash menu
