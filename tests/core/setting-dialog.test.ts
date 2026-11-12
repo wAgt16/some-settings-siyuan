@@ -511,6 +511,7 @@ describe("改完即写", () => {
         fire(number, "change");
 
         await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({size: 24}));
+        expect(number.value).toBe("24");
     });
 
     it("清空数字框时按 0 处理，落盘前被 min 夹住", async () => {
@@ -522,6 +523,7 @@ describe("改完即写", () => {
         fire(number, "change");
 
         await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({size: 8}));
+        expect(number.value).toBe("8");
     });
 
     it("文本输入按静默期合并写盘，连打几个字只写一次", async () => {
@@ -547,6 +549,31 @@ describe("改完即写", () => {
 
         await vi.waitFor(() => expect(host.saveData).toHaveBeenCalledTimes(1));
         expect(host.files.get("feature-alpha")).toMatchObject({label: "马上"});
+    });
+
+    it("写入过程中继续输入，后续静默写盘不能带上旧值", async () => {
+        const {q, host} = await open();
+        let releaseFirstWrite: (() => void) | undefined;
+        const firstWrite = new Promise<void>((resolve) => {
+            releaseFirstWrite = resolve;
+        });
+        host.saveData.mockImplementationOnce(async (name: string, value: unknown): Promise<unknown> => {
+            await firstWrite;
+            host.files.set(name, JSON.parse(JSON.stringify(value)));
+            return {code: 0};
+        });
+        const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
+        input.value = "第一次";
+        fire(input, "input");
+        fire(input, "change");
+        await vi.waitFor(() => expect(host.saveData).toHaveBeenCalledTimes(1));
+        input.value = "第二次";
+        fire(input, "input");
+        releaseFirstWrite?.();
+        await vi.waitFor(() => expect(host.saveData).toHaveBeenCalledTimes(2));
+        expect(host.saveData.mock.calls[1]?.[1]).toMatchObject({label: "第二次"});
+        expect(host.files.get("feature-alpha")).toMatchObject({label: "第二次"});
+        expect(input.value).toBe("第二次");
     });
 
     it("关面板时把还没落地的那一次补上", async () => {

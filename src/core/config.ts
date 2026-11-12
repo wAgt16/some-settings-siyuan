@@ -192,6 +192,7 @@ export class ConfigStore {
     private readonly plugin: Plugin;
     private readonly entries = new Map<string, Entry>();
     private readonly listeners = new Map<string, Set<() => void>>();
+    private readonly patchQueues = new Map<string, Promise<void>>();
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
@@ -320,8 +321,24 @@ export class ConfigStore {
      * - 与当前值相同的改动不写盘：下拉重选同一项、开关重设同一状态都算没改；
      * - 写盘失败或读回不一致时把内存态退回改动之前，再把问题抛给调用方 ——
      *   界面据此把控件改回磁盘上的值，不允许停在「看着存住了、其实没存」的状态。
+     *
+     * 同一功能的归一化、写入、读回与回滚按调用顺序串行执行：乱序完成会让旧值覆盖新值，
+     * 失败回滚也可能把后来已经落盘的改动一起抹掉。失败只拒绝自己的调用，不能中断后续队列。
      */
     async patch(id: string, patch: FeatureConfig): Promise<void> {
+        const previousQueue = this.patchQueues.get(id) || Promise.resolve();
+        const queued = previousQueue.catch((): void => undefined).then(() => this.applyPatch(id, patch));
+        this.patchQueues.set(id, queued);
+        try {
+            await queued;
+        } finally {
+            if (this.patchQueues.get(id) === queued) {
+                this.patchQueues.delete(id);
+            }
+        }
+    }
+
+    private async applyPatch(id: string, patch: FeatureConfig): Promise<void> {
         const entry = this.entries.get(id);
         if (!entry) {
             return;

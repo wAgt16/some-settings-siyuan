@@ -885,6 +885,8 @@ export class SettingsPanel {
     private commit(featureId: string, patch: FeatureConfig): Promise<void> {
         const queued = this.pending.get(featureId);
         this.pending.delete(featureId);
+        // 立即提交后旧计时器必须失效，否则写入途中再次输入会留下一次没有新输入触发的静默写盘。
+        this.clearFlushTimer();
         return this.write(featureId, queued ? {...queued, ...patch} : patch);
     }
 
@@ -928,15 +930,16 @@ export class SettingsPanel {
     /**
      * 写盘并处理失败。
      *
-     * store 已经把内存态退回改动之前，这里把控件改回磁盘上的值，再把错误交给用户 ——
-     * 不允许界面停在「看着改了、其实没存」的状态。
+     * 写完后按 store 的归一化结果回显（例如数字被 min / max 夹取）；失败时 store 已回退内存态，
+     * 这里把控件改回磁盘上的值，再把错误交给用户，不允许界面停在「看着改了、其实没存」的状态。
      */
     private async write(featureId: string, patch: FeatureConfig): Promise<void> {
         try {
             await this.options.store.patch(featureId, patch);
         } catch (error) {
-            this.syncControls(featureId);
             reportError(`settings.${featureId}`, error);
+        } finally {
+            this.syncControls(featureId);
         }
     }
 

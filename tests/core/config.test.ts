@@ -440,6 +440,49 @@ describe("ConfigStore.patch", () => {
         expect(store.get("alpha").enabled).toBe(false);
     });
 
+    it("同一功能的写入按调用顺序执行，旧写入不能覆盖新配置", async () => {
+        const host = new FakeHost();
+        const store = new ConfigStore(host.asPlugin());
+        await store.register(definitionOf("alpha"));
+        let releaseFirstWrite: (() => void) | undefined;
+        const firstWrite = new Promise<void>((resolve) => {
+            releaseFirstWrite = resolve;
+        });
+        host.saveData.mockImplementationOnce(async (name: string, value: unknown): Promise<unknown> => {
+            await firstWrite;
+            host.files.set(name, JSON.parse(JSON.stringify(value)));
+            return {code: 0};
+        });
+        const first = store.patch("alpha", {enabled: true});
+        const second = store.patch("alpha", {enabled: false});
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(host.saveData).toHaveBeenCalledTimes(1);
+        releaseFirstWrite?.();
+        await first;
+        await second;
+        expect(host.saveData).toHaveBeenCalledTimes(2);
+        expect(host.files.get("feature-alpha")).toMatchObject({enabled: false});
+    });
+
+    it("前一次写入失败不阻断后续写入，也不回滚后续配置", async () => {
+        const host = new FakeHost();
+        const store = new ConfigStore(host.asPlugin());
+        await store.register(definitionOf("alpha"));
+        let rejectFirstWrite: (() => void) | undefined;
+        const firstWrite = new Promise<void>((_, reject) => {
+            rejectFirstWrite = () => reject(new Error("disk full"));
+        });
+        host.saveData.mockReturnValueOnce(firstWrite);
+        const first = store.patch("alpha", {enabled: true});
+        const second = store.patch("alpha", {label: "latest"});
+        rejectFirstWrite?.();
+        await expect(first).rejects.toThrow("disk full");
+        await expect(second).resolves.toBeUndefined();
+        expect(store.get("alpha")).toMatchObject({enabled: false, label: "latest"});
+        expect(host.files.get("feature-alpha")).toMatchObject({enabled: false, label: "latest"});
+    });
+
     it("没有注册过的 id 上的 patch 什么也不做", async () => {
         const host = new FakeHost();
         const store = new ConfigStore(host.asPlugin());
