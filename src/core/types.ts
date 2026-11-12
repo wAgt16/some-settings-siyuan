@@ -97,8 +97,8 @@ export interface FeatureActionContext {
     /**
      * 立即合并并落盘某个功能的配置，同时通知订阅者（开关变动会立刻挂载或卸载功能）。
      *
-     * 动作行自己的改动不走面板草稿，但会同步写进面板里这个功能的草稿：
-     * 否则用户随后点「保存」时，手里的旧草稿会把这次改动覆盖回去。
+     * 写盘成功后订阅者会立刻收到通知，设置面板也据此把对应控件改成磁盘上的值，
+     * 界面与磁盘不会各说各话。
      */
     updateConfig(featureId: string, patch: FeatureConfig): Promise<void>;
     /**
@@ -120,7 +120,7 @@ export interface FeatureActionContext {
 /**
  * 说明块（`kind: "note"`）底部的一个动作按钮。
  *
- * 与独立的动作行是同一套东西：没有可持久化取值、不进草稿、不受「取消 / 保存」影响、
+ * 与独立的动作行是同一套东西：没有可持久化取值、不参与配置读写、
  * 只读 / 发布模式下禁用、点击由面板统一走 `bindPendingClick`。
  * 区别只在于它属于这段说明（「去点星」「捐赠」这类），单独占一行反而把一段话拆成了三条设置，
  * 所以它挂在 `note` 上：桌面端与其它行同构 —— 文字在左、按钮竖着叠在右侧（每颗 200px），
@@ -196,7 +196,7 @@ export type SettingField =
     }
     | {
         /**
-         * 只读说明块：整行铺满的文字，没有任何控件，不参与配置的读写与「保存 / 取消」语义。
+         * 只读说明块：整行铺满的文字，没有任何控件，不参与配置的读写。
          * 只用于面向用户的说明（插件性质、版本号、仓库地址这类），不是设置项。
          *
          * `text` 是 i18n key；值按 `\n` 分段，其中的 `{name}` 占位符由 `values` 逐项替换，
@@ -215,7 +215,7 @@ export type SettingField =
     }
     | {
         /**
-         * 纯动作行：点击立刻执行，不参与配置的读写与「保存 / 取消」语义。
+         * 纯动作行：点击立刻执行，不参与配置的读写。
          * 只允许用于「打开某个诊断窗口」这类没有可持久化取值的入口。
          */
         kind: "button";
@@ -256,7 +256,7 @@ export interface FeatureHost {
     readonly log: (...args: unknown[]) => void;
     /** 落盘并通知功能自身，patch 会与当前配置合并。 */
     setConfig(patch: FeatureConfig): Promise<void>;
-    /** 订阅本功能配置变化（面板点「保存」后触发），随插件卸载自动退订。 */
+    /** 订阅本功能配置变化（设置面板落盘或动作行改动后触发），随插件卸载自动退订。 */
     onConfigChange(listener: () => void): void;
     /** 注入一段只属于该功能的 CSS，返回撤销函数。 */
     addStyle(css: string): () => void;

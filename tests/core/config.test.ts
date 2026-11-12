@@ -17,6 +17,7 @@ import {
     defaultConfig,
     describeMismatch,
     normalizeConfig,
+    sameConfig,
     storageNameOf,
 } from "../../src/core/config";
 import type {
@@ -238,6 +239,22 @@ describe("normalizeConfig", () => {
     });
 });
 
+describe("sameConfig", () => {
+    it("键与值都相同时为真，顺序无关", () => {
+        expect(sameConfig({enabled: true, size: 12}, {size: 12, enabled: true})).toBe(true);
+    });
+
+    it("少一个键或多一个键都算不同", () => {
+        expect(sameConfig({enabled: true}, {enabled: true, size: 12})).toBe(false);
+        expect(sameConfig({enabled: true, size: 12}, {enabled: true})).toBe(false);
+    });
+
+    it("嵌套值按 JSON 比较", () => {
+        expect(sameConfig({list: [1, {a: 2}]}, {list: [1, {a: 2}]})).toBe(true);
+        expect(sameConfig({list: [1, {a: 2}]}, {list: [1, {a: 3}]})).toBe(false);
+    });
+});
+
 describe("defaultConfig", () => {
     it("只取 schema 默认值，不读盘", () => {
         expect(defaultConfig(settings)).toEqual({enabled: false, label: "hi", size: 12, mode: "auto"});
@@ -338,7 +355,7 @@ describe("ConfigStore 订阅", () => {
     });
 });
 
-describe("ConfigStore.saveNow / patch", () => {
+describe("ConfigStore.patch", () => {
     it("patch 合并后写盘并按 schema 归一化", async () => {
         const host = new FakeHost();
         const store = new ConfigStore(host.asPlugin());
@@ -368,87 +385,109 @@ describe("ConfigStore.saveNow / patch", () => {
         expect(vi.mocked(console.warn)).toHaveBeenCalled();
     });
 
-    it("patch 写盘失败时抛出，由调用方回滚界面", async () => {
+    it("与磁盘相同的值不重复写盘", async () => {
         const host = new FakeHost();
         const store = new ConfigStore(host.asPlugin());
+        await store.register(definitionOf("alpha"));
+        host.files.set("feature-alpha", {enabled: false, label: "hi", size: 12, mode: "auto"});
+        host.saveData.mockClear();
+        await store.patch("alpha", {enabled: false});
+        await store.patch("alpha", {label: "hi"});
+        expect(host.saveData).not.toHaveBeenCalled();
+    });
+
+    it("写盘成功后立刻通知订阅者，不必等应用重载", async () => {
+        const host = new FakeHost();
+        const store = new ConfigStore(host.asPlugin());
+        await store.register(definitionOf("alpha"));
+        const listener = vi.fn();
+        store.subscribe("alpha", listener);
+        await store.patch("alpha", {enabled: true});
+        expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it("写盘失败时抛出，并把内存态退回改动之前", async () => {
+        const host = new FakeHost();
+        const store = new ConfigStore(host.asPlugin());
+        await store.register(definitionOf("alpha"));
+        host.files.set("feature-alpha", {enabled: false, label: "keep", size: 12, mode: "auto"});
         await store.register(definitionOf("alpha"));
         host.saveData.mockRejectedValueOnce(new Error("disk full"));
-        await expect(store.patch("alpha", {enabled: true})).rejects.toThrow("disk full");
+        await expect(store.patch("alpha", {label: "changed"})).rejects.toThrow("disk full");
+        expect(store.get("alpha").label).toBe("keep");
     });
 
-    it("没有注册过的 id 上的 patch / saveNow 什么也不做", async () => {
-        const host = new FakeHost();
-        const store = new ConfigStore(host.asPlugin());
-        await expect(store.patch("ghost", {enabled: true})).resolves.toBeUndefined();
-        await expect(store.saveNow("ghost")).resolves.toBeUndefined();
-        expect(host.saveData).not.toHaveBeenCalled();
-    });
-});
-
-describe("ConfigStore.saveMany", () => {
-    it("校验通过时逐个写盘并通知", async () => {
-        const host = new FakeHost();
-        const store = new ConfigStore(host.asPlugin());
-        await store.register(definitionOf("alpha"));
-        await store.register(definitionOf("beta"));
-        const alpha = vi.fn();
-        store.subscribe("alpha", alpha);
-        await store.saveMany({
-            alpha: {enabled: true, label: "a", size: 10, mode: "manual"},
-            beta: {enabled: true, label: "b", size: 11, mode: "auto"},
-        });
-        expect(alpha).toHaveBeenCalledTimes(1);
-        expect(host.files.get("feature-alpha")).toEqual({enabled: true, label: "a", size: 10, mode: "manual"});
-        expect(host.files.get("feature-beta")).toEqual({enabled: true, label: "b", size: 11, mode: "auto"});
-    });
-
-    it("有字段问题时整体不写，并一次报全", async () => {
-        const host = new FakeHost();
-        const store = new ConfigStore(host.asPlugin());
-        await store.register(definitionOf("alpha"));
-        await store.register(definitionOf("beta"));
-        await expect(
-            store.saveMany({
-                alpha: {enabled: "yes"},
-                beta: {size: "big"},
-            }),
-        ).rejects.toMatchObject({
-            problems: [
-                'alpha: "enabled" should be boolean, got "yes", falling back to the default',
-                'beta: "size" should be number, got "big", falling back to the default',
-            ],
-        });
-        expect(host.saveData).not.toHaveBeenCalled();
-    });
-
-    it("不认识的功能 id 也算问题，整体不写", async () => {
-        const host = new FakeHost();
-        const store = new ConfigStore(host.asPlugin());
-        await expect(store.saveMany({ghost: {enabled: true}})).rejects.toMatchObject({
-            problems: ["ghost: no config store entry for this feature"],
-        });
-        expect(host.saveData).not.toHaveBeenCalled();
-    });
-
-    it("内核拒绝写入时抛出带问题的错误", async () => {
+    it("内核拒绝写入时抛出带问题的错误，内存态同样回退", async () => {
         const host = new FakeHost();
         const store = new ConfigStore(host.asPlugin());
         await store.register(definitionOf("alpha"));
         host.rejectWrites = true;
-        await expect(store.saveMany({alpha: {enabled: true}})).rejects.toMatchObject({
+        await expect(store.patch("alpha", {enabled: true})).rejects.toMatchObject({
             problems: ["feature-alpha: code 1: readonly"],
         });
+        expect(store.get("alpha").enabled).toBe(false);
     });
 
-    it("写后读回不一致时抛出，不允许静默通过", async () => {
+    it("写后读回不一致时抛出，并把内存态退回改动之前", async () => {
         const host = new FakeHost();
         const store = new ConfigStore(host.asPlugin());
         await store.register(definitionOf("alpha"));
         host.corruptWrites = true;
-        const error = await store.saveMany({alpha: {enabled: true}}).catch((reason: unknown) => reason);
+        const error = await store.patch("alpha", {enabled: true}).catch((reason: unknown) => reason);
         expect(error).toMatchObject({
             problems: ['feature-alpha：enabled: wrote true / read back "corrupted"'],
         });
+        expect(store.get("alpha").enabled).toBe(false);
+    });
+
+    it("同一功能的写入按调用顺序执行，旧写入不能覆盖新配置", async () => {
+        const host = new FakeHost();
+        const store = new ConfigStore(host.asPlugin());
+        await store.register(definitionOf("alpha"));
+        let releaseFirstWrite: (() => void) | undefined;
+        const firstWrite = new Promise<void>((resolve) => {
+            releaseFirstWrite = resolve;
+        });
+        host.saveData.mockImplementationOnce(async (name: string, value: unknown): Promise<unknown> => {
+            await firstWrite;
+            host.files.set(name, JSON.parse(JSON.stringify(value)));
+            return {code: 0};
+        });
+        const first = store.patch("alpha", {enabled: true});
+        const second = store.patch("alpha", {enabled: false});
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(host.saveData).toHaveBeenCalledTimes(1);
+        releaseFirstWrite?.();
+        await first;
+        await second;
+        expect(host.saveData).toHaveBeenCalledTimes(2);
+        expect(host.files.get("feature-alpha")).toMatchObject({enabled: false});
+    });
+
+    it("前一次写入失败不阻断后续写入，也不回滚后续配置", async () => {
+        const host = new FakeHost();
+        const store = new ConfigStore(host.asPlugin());
+        await store.register(definitionOf("alpha"));
+        let rejectFirstWrite: (() => void) | undefined;
+        const firstWrite = new Promise<void>((_, reject) => {
+            rejectFirstWrite = () => reject(new Error("disk full"));
+        });
+        host.saveData.mockReturnValueOnce(firstWrite);
+        const first = store.patch("alpha", {enabled: true});
+        const second = store.patch("alpha", {label: "latest"});
+        rejectFirstWrite?.();
+        await expect(first).rejects.toThrow("disk full");
+        await expect(second).resolves.toBeUndefined();
+        expect(store.get("alpha")).toMatchObject({enabled: false, label: "latest"});
+        expect(host.files.get("feature-alpha")).toMatchObject({enabled: false, label: "latest"});
+    });
+
+    it("没有注册过的 id 上的 patch 什么也不做", async () => {
+        const host = new FakeHost();
+        const store = new ConfigStore(host.asPlugin());
+        await expect(store.patch("ghost", {enabled: true})).resolves.toBeUndefined();
+        expect(host.saveData).not.toHaveBeenCalled();
     });
 });
 

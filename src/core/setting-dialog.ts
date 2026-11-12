@@ -13,22 +13,23 @@
  * - 每一页里第一行是功能名与说明，随后就是设置行，**没有任何嵌套分组**
  * - 每一行都是「左侧文案 + 右侧控件」，控件用思源的 b3-* 类
  * - 行与行之间保留内核 `.b3-label` 自带的分割线，只有整页的最后一行去掉
- * - 底部动作区只有「取消 / 保存」，不额外加任何按钮
+ * - 没有底部动作区：面板里不出现任何「保存 / 取消」按钮，宿主的动作区整块收起
  *
  * 滚动：桌面端每一页自己滚（`.some-settings-panel__view`），内容区不滚，页签栏不会被滚走；
  * 移动端的抽屉高度由宿主按内容量出来，所以整块面板按自然高度排版、由宿主的内容区滚动，
  * 页签栏吸顶。
  *
- * 保存机制：控件改动先落在面板自己的草稿里，点「保存」才写文件并关闭；
- * 点「取消」丢弃草稿。这样设置一定能存下去，也符合原生对话框的语义。
+ * 保存机制：**改完即落盘**。控件一变就写进该功能自己的配置文件，没有草稿、也没有「保存」，
+ * 界面显示的值永远等于磁盘上的值。开关与下拉改一次写一次；文本 / 数字框在打字过程中按静默期
+ * 合并写盘，失焦立即写，关面板时把还没落地的那一次补上。写盘失败时 store 已把内存态退回改动
+ * 之前，面板再把控件改回磁盘上的值并让错误可见。
  *
- * 生命周期同样只有显式入口：取消、保存、插件卸载（外加内核自己的 Esc）。
+ * 生命周期同样只有显式入口：关面板、插件卸载（外加内核自己的 Esc）。关面板时补写待落地的改动。
  * **不监听窗口失焦，也不监听 `document` 可见性** —— 两者都不等于「用户离开了」，
  * 详见 `docs/development.md` 里的第 12 条。
  */
 import {
     Setting,
-    confirm,
     showMessage,
 } from "siyuan";
 import type {
@@ -171,11 +172,14 @@ const markLastRow = (rowsHtml: string): string => {
 /** 视口变化轮询间隔。 */
 const VIEWPORT_POLL_MS = 250;
 
+/** 文本 / 数字框的静默期：连续敲字时把改动合并成一次写盘。 */
+const TYPING_QUIET_MS = 400;
+
 /**
  * 取对话框里的一个区域（正文区 / 动作区），没有就补一个。
  *
- * 宿主的 `Setting.open()` 正常会建好这两个区域；补建只是兜底 —— 结构略有差异的宿主版本
- * 上宁可自己补一个，也不能让面板没有保存按钮（用户改完存不下去）或者没有正文。
+ * 宿主的 `Setting.open()` 正常会建好正文区；补建只是兜底 —— 结构略有差异的宿主版本上
+ * 宁可自己补一个，也不能让面板没有正文。
  */
 const ensureRegion = (parent: HTMLElement, className: string): HTMLElement => {
     const existing = parent.querySelector<HTMLElement>(`.${className}`);
@@ -203,7 +207,16 @@ export class SettingsPanel {
     private readonly options: SettingsPanelOptions;
     private setting?: SettingWithDialog;
     private dialog?: Dialog;
-    private drafts = new Map<string, FeatureConfig>();
+    /**
+     * 静默期里还没落盘的改动，键是功能 id。
+     *
+     * 只收文本 / 数字框的在途输入：开关与下拉改一次写一次，不进这里。
+     * 关面板时把这里剩下的内容补写出去。
+     */
+    private pending = new Map<string, FeatureConfig>();
+    private flushTimer?: number;
+    /** 插件卸载中：这时不再补写待落地的改动（宿主已经不再接受写入）。 */
+    private disposed = false;
     private viewportTimer?: number;
     /** 动作行注册的「插件卸载时」清理回调。 */
     private readonly unloadListeners = new Set<() => void>();
@@ -228,10 +241,7 @@ export class SettingsPanel {
         return this.t(feature.name, feature.id);
     }
 
-    /**
-     * 当前分类（页签）下要显示设置界面的功能。
-     * 与建草稿走的是同一个判定，避免出现「渲染了但没草稿」的错位。
-     */
+    /** 当前分类（页签）下要显示设置界面的功能。 */
     private visibleFeatures(category: FeatureCategory): FeatureDefinition[] {
         return this.visibleFeaturesAll().filter((feature) => feature.category === category);
     }
@@ -243,15 +253,16 @@ export class SettingsPanel {
             return;
         }
         ensurePanelCss();
-        const features = this.visibleFeaturesAll();
         const mobile = isMobileFrontend();
-        this.drafts = new Map(features.map((feature) => [feature.id, {...this.options.store.get(feature.id)}]));
 
         const setting = new Setting({
             destroyCallback: () => {
+                // 关面板时把还在静默期里的那一次补上：用户改完直接关窗，改动也不会丢。
+                void this.flushPending();
                 this.setting = undefined;
                 this.dialog = undefined;
-                this.drafts = new Map();
+                this.pending = new Map();
+                this.clearFlushTimer();
                 this.stopViewportWatch();
             },
         }) as SettingWithDialog;
@@ -259,7 +270,7 @@ export class SettingsPanel {
 
         // 对话框由宿主建：新版宿主在移动端用 MobileDialog 把它渲染成底部抽屉，
         // 桌面端仍是居中弹窗；设置窗口模式下 Setting.close() 还会替我们收掉那个窗口。
-        // open() 是同步的，返回时正文与动作区都已就绪，因此这里一次性填好整块面板内容 ——
+        // open() 是同步的，返回时正文已经就绪，因此这里一次性填好整块面板内容 ——
         // 不逐项插入、不异步挂载，入场动画开始前内容就是完整的。
         //
         // 移动端还要挡掉宿主在 open() 里对正文输入控件的自动聚焦：那一下会顶起软键盘、
@@ -271,7 +282,6 @@ export class SettingsPanel {
         } catch (error) {
             // 宿主建对话框失败时不能留下「已打开」的状态，否则之后再点设置都不会有反应。
             this.setting = undefined;
-            this.drafts = new Map();
             reportError("settings.open", error);
             return;
         }
@@ -280,7 +290,6 @@ export class SettingsPanel {
         if (!dialog) {
             // 宿主没有建出对话框：收干净状态并报错，不留一个关不掉的半成品面板。
             this.setting = undefined;
-            this.drafts = new Map();
             reportError("settings.open", new Error("the host did not create a settings dialog"));
             return;
         }
@@ -310,7 +319,7 @@ export class SettingsPanel {
         }
 
         this.render();
-        this.bindActions();
+        this.hideActionBar();
 
         if (isReadonly()) {
             showMessage(this.t("panel.readonlyTip"), 5000);
@@ -325,9 +334,10 @@ export class SettingsPanel {
 
     /**
      * 插件卸载：收掉面板，并执行动作行注册的清理回调（它们打开的窗口不在挂载实例里）。
-     * 与 `close()` 分开：用户点「取消 / 保存」只收面板，动作行开的窗口仍然留着。
+     * 与 `close()` 分开：用户关面板只收面板，动作行开的窗口仍然留着。
      */
     dispose(): void {
+        this.disposed = true;
         this.close();
         const listeners = [...this.unloadListeners];
         this.unloadListeners.clear();
@@ -355,11 +365,6 @@ export class SettingsPanel {
         if (content) {
             content.style.padding = "0";
             content.style.overflow = "hidden";
-        }
-        // 动作区窄屏取 8px：内核的 16px 24px 在手机上会吃掉近一半屏宽。
-        const action = root.querySelector<HTMLElement>(".b3-dialog__action");
-        if (action) {
-            action.style.padding = viewportWidth() <= NARROW_WIDTH ? "7px 8px" : "7px 24px";
         }
         if (root.querySelector(".b3-dialog--window")) {
             return;
@@ -418,11 +423,6 @@ export class SettingsPanel {
             content.style.padding = "0";
             content.style.overflow = "auto";
         }
-        // 动作区与行用同一档内边距，抽屉底部不至于多出一圈空白。
-        const action = this.dialog?.element.querySelector<HTMLElement>(".b3-dialog__action");
-        if (action) {
-            action.style.padding = "7px 8px";
-        }
     }
 
     /**
@@ -436,7 +436,10 @@ export class SettingsPanel {
         }
         let last = viewportWidth();
         this.viewportTimer = window.setInterval(() => {
-            if (!this.dialog) {
+            // 对话框已经不在页面里（宿主收掉了它、页面正在拆除）就没有量视口的必要：
+            // 继续轮询只会在没有 document 的环境里抛错，也白留一个定时器。
+            if (!this.dialog || !this.dialog.element.isConnected) {
+                this.stopViewportWatch();
                 return;
             }
             const current = viewportWidth();
@@ -485,7 +488,7 @@ export class SettingsPanel {
             // 因此「哪一行是最后一行」要跨功能判定，不能交给 :last-child。
             const rows: string[] = [];
             features.forEach((feature) => {
-                const draft = this.drafts.get(feature.id) || this.options.store.get(feature.id);
+                const config = this.options.store.get(feature.id);
                 // 功能自己的开关跟着功能名走，不单独占一行；剩下的才是它的参数
                 const toggle = feature.settings.find(
                     (field): field is Extract<SettingField, {kind: "switch";}> =>
@@ -505,7 +508,7 @@ export class SettingsPanel {
                         html: switchControlHtml(
                             bindKey(feature.id, toggle.key),
                             this.t(toggle.title),
-                            Boolean(draft[toggle.key]),
+                            Boolean(config[toggle.key]),
                             readonly,
                         ),
                         toggles: true,
@@ -515,7 +518,7 @@ export class SettingsPanel {
                         html: selectControlHtml(
                             bindKey(feature.id, inlineSelect.key),
                             this.selectOptionsOf(inlineSelect),
-                            String(draft[inlineSelect.key] ?? inlineSelect.default),
+                            String(config[inlineSelect.key] ?? inlineSelect.default),
                             readonly,
                         ),
                     };
@@ -531,7 +534,7 @@ export class SettingsPanel {
                 const childRows: string[] = [];
                 feature.settings
                     .filter((field) => field !== toggle && field !== inlineSelect)
-                    .forEach((field) => childRows.push(this.fieldHtml(feature, field, draft, readonly)));
+                    .forEach((field) => childRows.push(this.fieldHtml(feature, field, config, readonly)));
                 rows.push(markLastChildRow(childRows.join("")));
             });
             // 页签只在这里出现一次：顺序、文案与图标都由这一处决定，默认打开第一个有内容的页签
@@ -701,28 +704,28 @@ export class SettingsPanel {
     // ------------------------------------------------------------ 交互
 
     private bindControls(scope: HTMLElement): void {
+        // 开关与下拉：改一次写一次，没有草稿可存。
         scope.querySelectorAll<HTMLInputElement>("[data-ss-switch]").forEach((input) => {
-            input.addEventListener("change", () => {
-                this.stage(input.dataset.ssSwitch as string, input.checked);
-            });
+            input.addEventListener(
+                "change",
+                () => this.commitControl(input.dataset.ssSwitch as string, input.checked),
+            );
         });
         scope.querySelectorAll<HTMLSelectElement>("[data-ss-select]").forEach((select) => {
-            select.addEventListener("change", () => {
-                this.stage(select.dataset.ssSelect as string, select.value);
-            });
+            select.addEventListener(
+                "change",
+                () => this.commitControl(select.dataset.ssSelect as string, select.value),
+            );
         });
+        // 文本 / 数字框：打字过程按静默期合并写盘（每敲一个字都写一次文件没有意义），
+        // 失焦 / 回车触发的 change 立即写。
         scope.querySelectorAll<HTMLInputElement>("[data-ss-number]").forEach((input) => {
-            input.addEventListener("change", () => {
-                const value = Number(input.value);
-                if (Number.isFinite(value)) {
-                    this.stage(input.dataset.ssNumber as string, value);
-                }
-            });
+            input.addEventListener("input", () => this.typeInput(input.dataset.ssNumber as string, input.value));
+            input.addEventListener("change", () => this.commitInput(input.dataset.ssNumber as string, input.value));
         });
         scope.querySelectorAll<HTMLInputElement>("[data-ss-text]").forEach((input) => {
-            input.addEventListener("change", () => {
-                this.stage(input.dataset.ssText as string, input.value);
-            });
+            input.addEventListener("input", () => this.typeInput(input.dataset.ssText as string, input.value));
+            input.addEventListener("change", () => this.commitInput(input.dataset.ssText as string, input.value));
         });
         // 说明块里的链接：不让 <a> 走默认跳转 —— 移动端 WebView 可能把整个前端导航走。
         scope.querySelectorAll<HTMLAnchorElement>(`.${PANEL_CLASS}__note a[href]`).forEach((anchor) => {
@@ -799,19 +802,9 @@ export class SettingsPanel {
             },
             configOf: (id: string) => ({...this.options.store.get(id)}),
             updateConfig: async (id: string, patch: FeatureConfig) => {
-                // 先写进草稿：动作行绕过了「保存」，但面板随后点保存时不能把这次改动覆盖掉
-                const draft = this.drafts.get(id);
-                if (draft) {
-                    Object.assign(draft, patch);
-                }
                 await this.options.store.patch(id, patch);
                 // 开关状态变了就把面板上的控件一起改掉，不让界面和磁盘各说各话
-                const control = this.dialog?.element.querySelector<HTMLInputElement>(
-                    `[data-ss-switch="${bindKey(id, "enabled")}"]`,
-                );
-                if (control) {
-                    control.checked = this.options.store.get(id).enabled === true;
-                }
+                this.syncControls(id);
             },
             clearAllConfigs: () => this.options.store.clearAll(),
             exportConfigs: () => this.options.store.exportAll(),
@@ -820,111 +813,171 @@ export class SettingsPanel {
     }
 
     /**
-     * 暂存一次控件变更，只改内存里的草稿，不落盘。
+     * 把宿主的动作区整块收起。
      *
-     * 正常路径下草稿在打开面板时就建好了；缺草稿属于异常，此时补建一份而不是丢弃，
-     * 保证用户改过的东西一定能进到「保存」里，同时打出告警便于定位。
+     * 面板没有「保存 / 取消」这一步 —— 控件改动当场落盘，所以宿主建的那条动作区直接
+     * 用 `fn__none` 收起来，插件也不往里放任何按钮。宿主没建动作区时什么都不用做。
      */
-    private stage(encodedKey: string, value: unknown): void {
-        const [featureId, key] = parseBindKey(encodedKey);
-        let draft = this.drafts.get(featureId);
-        if (!draft) {
-            const feature = this.options.features.find((item) => item.id === featureId);
-            if (!feature) {
-                console.warn(
-                    `[some-settings-siyuan] control "${encodedKey}" has no matching feature, change discarded`,
-                );
-                return;
-            }
-            // 正常情况下草稿已在 show() 里建好；走到这里说明两者判定不一致，
-            // 补建一份以免用户改过的东西被丢掉，同时留一条可检索的错误。
-            console.error(
-                `[some-settings-siyuan] control "${encodedKey}" has no draft (currently ${this.drafts.size}), rebuilt from the saved config`,
-            );
-            draft = {...this.options.store.get(featureId)};
-            this.drafts.set(featureId, draft);
-        }
-        draft[key] = value;
+    private hideActionBar(): void {
+        this.dialog?.element.querySelector<HTMLElement>(".b3-dialog__action")?.classList.add("fn__none");
     }
 
-    private bindActions(): void {
+    // ------------------------------------------------------------ 改完即写
+
+    /** 开关 / 下拉的一次改动：立即落盘。 */
+    private commitControl(encodedKey: string, value: unknown): void {
+        const target = this.targetOf(encodedKey);
+        if (target) {
+            void this.commit(target.featureId, {[target.key]: value});
+        }
+    }
+
+    /**
+     * 文本 / 数字框在打字过程中的一次输入：只进静默队列，等用户停下来再写。
+     *
+     * 数字框打到一半的形态（清空、只有一个负号、小数点）不是合法值，先不落盘；
+     * 写完（失焦的 change）时再按 0 处理，与改动前「保存时被 min 夹住」的行为一致。
+     */
+    private typeInput(encodedKey: string, raw: string): void {
+        const target = this.targetOf(encodedKey);
+        if (!target) {
+            return;
+        }
+        if (!target.numeric) {
+            this.schedule(target.featureId, {[target.key]: raw});
+            return;
+        }
+        if (raw.trim() === "") {
+            return;
+        }
+        const value = Number(raw);
+        if (Number.isFinite(value)) {
+            this.schedule(target.featureId, {[target.key]: value});
+        }
+    }
+
+    /** 文本 / 数字框失焦（或回车）触发的提交：立即落盘。 */
+    private commitInput(encodedKey: string, raw: string): void {
+        const target = this.targetOf(encodedKey);
+        if (target) {
+            void this.commit(target.featureId, {[target.key]: target.numeric ? Number(raw) : raw});
+        }
+    }
+
+    /**
+     * 把控件标识（`功能 id::字段 key`）解析成落盘需要的信息。
+     *
+     * 声明里找不到这个功能时只告警并丢弃这次改动：面板渲染完之后声明被改掉属于异常，
+     * 没有 schema 就没有可写的东西。
+     */
+    private targetOf(encodedKey: string): {featureId: string; key: string; numeric: boolean;} | undefined {
+        const [featureId, key] = parseBindKey(encodedKey);
+        const feature = this.options.features.find((item) => item.id === featureId);
+        if (!feature) {
+            console.warn(`[some-settings-siyuan] control "${encodedKey}" has no matching feature, change discarded`);
+            return undefined;
+        }
+        const field = feature.settings.find((item) => item.key === key);
+        return {featureId, key, numeric: field?.kind === "number"};
+    }
+
+    /** 立即写盘；同一功能还有排队中的输入时一起写掉，同一个文件不写两遍。 */
+    private commit(featureId: string, patch: FeatureConfig): Promise<void> {
+        const queued = this.pending.get(featureId);
+        this.pending.delete(featureId);
+        // 立即提交后旧计时器必须失效，否则写入途中再次输入会留下一次没有新输入触发的静默写盘。
+        this.clearFlushTimer();
+        return this.write(featureId, queued ? {...queued, ...patch} : patch);
+    }
+
+    /** 把一次改动放进静默队列；静默期结束后统一写盘。 */
+    private schedule(featureId: string, patch: FeatureConfig): void {
+        this.pending.set(featureId, {...this.pending.get(featureId), ...patch});
+        this.clearFlushTimer();
+        this.flushTimer = window.setTimeout(() => {
+            this.flushTimer = undefined;
+            void this.flushPending();
+        }, TYPING_QUIET_MS);
+    }
+
+    /** 把静默期里剩下的改动立刻写盘（定时器到点、失焦合并、关面板时调用）；幂等。 */
+    private async flushPending(): Promise<void> {
+        this.clearFlushTimer();
+        if (this.pending.size === 0) {
+            return;
+        }
+        // 卸载途中宿主已经不再接受写入（saveData 会以 410 拒绝）：待落地的改动直接丢掉，
+        // 不要让一次注定失败的写入再弹一个错误提示。
+        if (this.disposed) {
+            this.pending = new Map();
+            return;
+        }
+        const queued = [...this.pending];
+        this.pending = new Map();
+        for (const [featureId, patch] of queued) {
+            await this.write(featureId, patch);
+        }
+    }
+
+    private clearFlushTimer(): void {
+        if (this.flushTimer === undefined) {
+            return;
+        }
+        window.clearTimeout(this.flushTimer);
+        this.flushTimer = undefined;
+    }
+
+    /**
+     * 写盘并处理失败。
+     *
+     * 写完后按 store 的归一化结果回显（例如数字被 min / max 夹取）；失败时 store 已回退内存态，
+     * 这里把控件改回磁盘上的值，再把错误交给用户，不允许界面停在「看着改了、其实没存」的状态。
+     */
+    private async write(featureId: string, patch: FeatureConfig): Promise<void> {
+        try {
+            await this.options.store.patch(featureId, patch);
+        } catch (error) {
+            reportError(`settings.${featureId}`, error);
+        } finally {
+            this.syncControls(featureId);
+        }
+    }
+
+    /**
+     * 把某个功能的控件改回存储里的值（写盘失败后使用）。
+     *
+     * 只动这一个功能的控件：别的功能没有改动，不该被动过。
+     */
+    private syncControls(featureId: string): void {
         const root = this.dialog?.element;
         if (!root) {
             return;
         }
-        // 宿主的 Setting.open() 已经建好动作区，并把点击绑在它自己的「取消 / 保存」上
-        // （没传 confirmCallback 时整个动作区还是 fn__none）。这里把动作区整块换成
-        // 本插件自己的两个按钮：类名不变，外观与宿主一致，但拿回「有未保存改动时先确认」、
-        // 「保存期间禁用按钮」这些面板语义；宿主的监听随旧按钮一起丢掉。
-        const body = root.querySelector<HTMLElement>(".b3-dialog__body");
-        if (body) {
-            const action = ensureRegion(body, "b3-dialog__action");
-            action.classList.remove("fn__none");
-            action.innerHTML = `<button class="b3-button b3-button--cancel" data-ss-cancel type="button">${
-                escapeHtml(this.t("dialog.cancel", window.siyuan.languages.cancel))
-            }</button><div class="fn__space"></div><button class="b3-button b3-button--text" data-ss-save type="button">${
-                escapeHtml(this.t("dialog.save", window.siyuan.languages.save))
-            }</button>`;
-        }
-        // 底栏两个按钮同样走 bindPendingClick：取消在有未保存改动时会再开一个确认框，
-        // 保存要等写盘和读回校验，连点都会把同一件事做两遍（两个确认框、两次写盘）。
-        const cancelButton = root.querySelector<HTMLButtonElement>("[data-ss-cancel]");
-        if (cancelButton) {
-            bindPendingClick(cancelButton, "settings.cancel", () => {
-                if (this.isDirty()) {
-                    confirm(
-                        this.t("dialog.discardTitle", this.options.plugin.displayName || this.options.plugin.name),
-                        this.t("dialog.discardText"),
-                        () => this.close(),
-                    );
-                    return;
-                }
-                this.close();
-            });
-        }
-        const saveButton = root.querySelector<HTMLButtonElement>("[data-ss-save]");
-        if (saveButton) {
-            bindPendingClick(saveButton, "settings.save", () => this.save());
-        }
-    }
-
-    private isDirty(): boolean {
-        return this.changedDrafts() !== null;
-    }
-
-    /**
-     * 收集与已提交配置不同的草稿；没有改动时返回 null。
-     * 草稿与已提交配置都在内存里，比较的是同一批 key。
-     */
-    private changedDrafts(): Record<string, FeatureConfig> | null {
-        const changed: Record<string, FeatureConfig> = {};
-        for (const [id, draft] of this.drafts) {
-            const current = this.options.store.get(id);
-            const keys = new Set([...Object.keys(draft), ...Object.keys(current)]);
-            if ([...keys].some((key) => draft[key] !== current[key])) {
-                changed[id] = {...draft};
+        const config = this.options.store.get(featureId);
+        const keyOf = (encoded: string | undefined): string | undefined => {
+            if (typeof encoded !== "string") {
+                return undefined;
             }
-        }
-        return Object.keys(changed).length > 0 ? changed : null;
-    }
-
-    private save(): Promise<void> {
-        const changed = this.changedDrafts();
-        if (!changed) {
-            this.close();
-            return Promise.resolve();
-        }
-        return this.options.store.saveMany(changed).then(() => {
-            showMessage(this.t("dialog.saved"), 3000);
-            this.close();
-        }).catch((error) => {
-            // 校验失败或写入读回不一致时都会带出全部问题，一次性提示，面板保持打开
-            const problems = (error as {problems?: string[];} | null)?.problems;
-            if (problems && problems.length > 0) {
-                reportError("settings.save", new Error(problems.join("；")));
-                return;
+            const [id, key] = parseBindKey(encoded);
+            return id === featureId ? key : undefined;
+        };
+        root.querySelectorAll<HTMLInputElement>("[data-ss-switch]").forEach((input) => {
+            const key = keyOf(input.dataset.ssSwitch);
+            if (key) {
+                input.checked = config[key] === true;
             }
-            reportError("settings.save", error);
+        });
+        root.querySelectorAll<HTMLSelectElement>("[data-ss-select]").forEach((select) => {
+            const key = keyOf(select.dataset.ssSelect);
+            if (key) {
+                select.value = String(config[key] ?? "");
+            }
+        });
+        root.querySelectorAll<HTMLInputElement>("[data-ss-number], [data-ss-text]").forEach((input) => {
+            const key = keyOf(input.dataset.ssNumber ?? input.dataset.ssText);
+            if (key) {
+                input.value = String(config[key] ?? "");
+            }
         });
     }
 }

@@ -3,7 +3,7 @@
  *
  * 面板的行为可以归成三件事，这里按这三块组织：
  * - 渲染：分类 → 页签，功能 → 功能行（开关跟名字走），字段 → 控件；
- * - 草稿：控件改动只进草稿，「取消」丢弃（有改动先确认），「保存」才写盘；
+ * - 落盘：控件改完即写（文本 / 数字按静默期合并），写失败时控件回到磁盘上的值；
  * - 宿主交互：只读模式、动作行、说明块外链、布局与宽度、卸载清理。
  */
 import type {Plugin} from "siyuan";
@@ -56,11 +56,6 @@ class FakeHost {
         "category.settings": "设置",
         "panel.none": "本宿主没有可用的设置项",
         "panel.readonlyTip": "只读工作空间",
-        "dialog.cancel": "取消",
-        "dialog.save": "保存",
-        "dialog.saved": "已保存",
-        "dialog.discardTitle": "放弃改动？",
-        "dialog.discardText": "改动尚未保存。",
         "action.done": "动作已执行",
     };
 
@@ -357,12 +352,13 @@ describe("show：渲染", () => {
 });
 
 describe("show：宿主结构差异", () => {
-    it("正文区里缺 content / action 时自己补上，保证有保存按钮", async () => {
+    it("正文区里缺 content 时自己补上，动作区则不需要", async () => {
         mockState.settingRegionsMissing = true;
         const {root} = await open();
         expect(root.querySelector(".b3-dialog__body > .b3-dialog__content")).not.toBeNull();
-        expect(root.querySelector(".b3-dialog__body > .b3-dialog__action")).not.toBeNull();
-        expect(root.querySelector("[data-ss-save]")).not.toBeNull();
+        // 面板没有保存 / 取消，宿主没建动作区时也不补
+        expect(root.querySelector("[data-ss-save]")).toBeNull();
+        expect(root.querySelector("[data-ss-cancel]")).toBeNull();
     });
 
     it("标题优先用插件显示名，没有时退回包名", async () => {
@@ -430,9 +426,10 @@ describe("只读模式", () => {
         expect(q<HTMLInputElement>('[data-ss-number="alpha::size"]')?.disabled).toBe(true);
         expect(q<HTMLInputElement>('[data-ss-text="alpha::label"]')?.disabled).toBe(true);
         expect(q<HTMLButtonElement>('[data-ss-button="alpha::run"]')?.disabled).toBe(true);
-        // 底部仍然有取消 / 保存两个按钮
-        expect(qa("[data-ss-cancel]")).toHaveLength(1);
-        expect(qa("[data-ss-save]")).toHaveLength(1);
+        // 底栏没有保存 / 取消，动作区整块收起
+        expect(qa("[data-ss-cancel]")).toHaveLength(0);
+        expect(qa("[data-ss-save]")).toHaveLength(0);
+        expect(q(".b3-dialog__action")?.classList.contains("fn__none")).toBe(true);
     });
 
     it("发布模式下同样按只读处理", async () => {
@@ -479,58 +476,45 @@ describe("页签交互", () => {
     });
 });
 
-describe("草稿与保存", () => {
-    it("控件改动只进草稿，不落盘", async () => {
-        const {q, host} = await open();
-        const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
-        input.value = "改过的";
-        fire(input, "change");
-
-        expect(host.saveData).not.toHaveBeenCalled();
-        expect(host.files.get("feature-alpha")).toBeUndefined();
+describe("改完即写", () => {
+    it("底栏没有任何保存 / 取消按钮，动作区整块收起", async () => {
+        const {q, qa} = await open();
+        expect(qa("[data-ss-save]")).toHaveLength(0);
+        expect(qa("[data-ss-cancel]")).toHaveLength(0);
+        expect(q(".b3-dialog__action")?.classList.contains("fn__none")).toBe(true);
+        expect(q(".b3-dialog__action")?.children).toHaveLength(0);
     });
 
-    it("没有改动时「保存」直接关闭，不写盘", async () => {
-        const {q, host} = await open();
-        (q("[data-ss-save]") as HTMLElement).click();
-        await vi.waitFor(() => expect(mockState.settings[0].closed).toBe(true));
-        expect(host.saveData).not.toHaveBeenCalled();
-    });
-
-    it("改动后「保存」写盘、提示并关闭", async () => {
-        const {q, host} = await open();
-        const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
-        input.value = "改过的";
-        fire(input, "change");
-
-        (q("[data-ss-save]") as HTMLElement).click();
-
-        await vi.waitFor(() => expect(mockState.settings[0].closed).toBe(true));
-        expect(host.files.get("feature-alpha")).toMatchObject({label: "改过的"});
-        expect(mockState.messages.some((message) => message.text === "已保存")).toBe(true);
-    });
-
-    it("各类控件的改动都进草稿", async () => {
+    it("开关改动立即落盘，不需要点任何按钮", async () => {
         const {q, host} = await open();
         const toggle = q<HTMLInputElement>('[data-ss-switch="alpha::enabled"]')!;
         toggle.checked = true;
         fire(toggle, "change");
 
-        const number = q<HTMLInputElement>('[data-ss-number="alpha::size"]')!;
-        number.value = "16";
-        fire(number, "change");
+        await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({enabled: true}));
+        expect(mockState.settings[0].closed).toBe(false);
+    });
 
+    it("下拉改动立即落盘", async () => {
+        const {q, host} = await open();
         const select = q<HTMLSelectElement>('[data-ss-select="alpha::mode"]')!;
         select.value = "manual";
         fire(select, "change");
 
-        (q("[data-ss-save]") as HTMLElement).click();
-
-        await vi.waitFor(() => expect(mockState.settings[0].closed).toBe(true));
-        expect(host.files.get("feature-alpha")).toMatchObject({enabled: true, size: 16, mode: "manual"});
+        await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({mode: "manual"}));
     });
 
-    it("清空数字框时按 0 记入草稿，保存时被 min 夹住", async () => {
+    it("数字框在失焦（change）时立即落盘，并按 min / max 夹住", async () => {
+        const {q, host} = await open();
+        const number = q<HTMLInputElement>('[data-ss-number="alpha::size"]')!;
+        number.value = "40";
+        fire(number, "change");
+
+        await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({size: 24}));
+        expect(number.value).toBe("24");
+    });
+
+    it("清空数字框时按 0 处理，落盘前被 min 夹住", async () => {
         // type=number 的输入框拿不到真正的非数字值（非法输入会被浏览器清成空串），
         // 所以这里覆盖的是「清空」这条真实路径：空串 -> 0 -> 夹到 min
         const {q, host} = await open();
@@ -538,87 +522,105 @@ describe("草稿与保存", () => {
         number.value = "";
         fire(number, "change");
 
-        (q("[data-ss-save]") as HTMLElement).click();
-        await vi.waitFor(() => expect(mockState.settings[0].closed).toBe(true));
-        expect(host.files.get("feature-alpha")).toMatchObject({size: 8});
+        await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({size: 8}));
+        expect(number.value).toBe("8");
     });
 
-    it("保存失败时面板保持打开，并把问题显示出来", async () => {
+    it("文本输入按静默期合并写盘，连打几个字只写一次", async () => {
         const {q, host} = await open();
         const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
-        input.value = "改过的";
+        for (const value of ["改", "改过", "改过的"]) {
+            input.value = value;
+            fire(input, "input");
+        }
+        // 静默期没到之前不写
+        expect(host.saveData).not.toHaveBeenCalled();
+
+        await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({label: "改过的"}));
+        expect(host.saveData).toHaveBeenCalledTimes(1);
+    });
+
+    it("静默期还没到就失焦时，改动立刻写盘且只写一次", async () => {
+        const {q, host} = await open();
+        const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
+        input.value = "马上";
+        fire(input, "input");
         fire(input, "change");
-        host.rejectWrites = true;
 
-        (q("[data-ss-save]") as HTMLElement).click();
-
-        await vi.waitFor(() => expect(mockState.messages.length).toBeGreaterThan(0));
-        expect(mockState.settings[0].closed).toBe(false);
-        expect(mockState.messages.some((message) => message.text.includes("code 1: readonly"))).toBe(true);
+        await vi.waitFor(() => expect(host.saveData).toHaveBeenCalledTimes(1));
+        expect(host.files.get("feature-alpha")).toMatchObject({label: "马上"});
     });
 
-    it("「取消」在没有改动时直接关闭，不弹确认", async () => {
-        const {q} = await open();
-        (q("[data-ss-cancel]") as HTMLElement).click();
-
-        expect(mockState.confirms).toHaveLength(0);
-        await vi.waitFor(() => expect(mockState.settings[0].closed).toBe(true));
+    it("写入过程中继续输入，后续静默写盘不能带上旧值", async () => {
+        const {q, host} = await open();
+        let releaseFirstWrite: (() => void) | undefined;
+        const firstWrite = new Promise<void>((resolve) => {
+            releaseFirstWrite = resolve;
+        });
+        host.saveData.mockImplementationOnce(async (name: string, value: unknown): Promise<unknown> => {
+            await firstWrite;
+            host.files.set(name, JSON.parse(JSON.stringify(value)));
+            return {code: 0};
+        });
+        const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
+        input.value = "第一次";
+        fire(input, "input");
+        fire(input, "change");
+        await vi.waitFor(() => expect(host.saveData).toHaveBeenCalledTimes(1));
+        input.value = "第二次";
+        fire(input, "input");
+        releaseFirstWrite?.();
+        await vi.waitFor(() => expect(host.saveData).toHaveBeenCalledTimes(2));
+        expect(host.saveData.mock.calls[1]?.[1]).toMatchObject({label: "第二次"});
+        expect(host.files.get("feature-alpha")).toMatchObject({label: "第二次"});
+        expect(input.value).toBe("第二次");
     });
 
-    it("有未保存改动时「取消」先确认，确认后放弃草稿", async () => {
+    it("关面板时把还没落地的那一次补上", async () => {
         const {q, host, panel} = await open();
         const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
-        input.value = "改过的";
-        fire(input, "change");
+        input.value = "关窗前的字";
+        fire(input, "input");
+        expect(host.saveData).not.toHaveBeenCalled();
 
-        (q("[data-ss-cancel]") as HTMLElement).click();
+        panel.close();
 
-        expect(mockState.confirms).toHaveLength(1);
-        expect(mockState.confirms[0].title).toBe("放弃改动？");
-        expect(mockState.settings[0].closed).toBe(true);
-        expect(panel.isOpen).toBe(false);
+        await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({label: "关窗前的字"}));
+    });
+
+    it("重选同一项不写盘", async () => {
+        const {q, host} = await open(
+            [featureOf("alpha")],
+            {alpha: {enabled: false, size: 12, label: "hi", mode: "auto"}},
+        );
+        const select = q<HTMLSelectElement>('[data-ss-select="alpha::mode"]')!;
+        select.value = "auto";
+        fire(select, "change");
+        await Promise.resolve();
+
+        expect(host.saveData).not.toHaveBeenCalled();
+    });
+
+    it("写盘失败时控件回到磁盘上的值，并把问题显示出来", async () => {
+        const {q, host} = await open();
+        host.rejectWrites = true;
+        const toggle = q<HTMLInputElement>('[data-ss-switch="alpha::enabled"]')!;
+        toggle.checked = true;
+        fire(toggle, "change");
+
+        const reported = (): boolean => mockState.messages.some((message) => message.text.includes("code 1: readonly"));
+        await vi.waitFor(() => expect(reported()).toBe(true));
+        expect(toggle.checked).toBe(false);
         expect(host.files.get("feature-alpha")).toBeUndefined();
-    });
-
-    it("确认框里选「取消」时面板留着，草稿也还在", async () => {
-        mockState.confirmAnswer = false;
-        const {q, panel} = await open();
-        const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
-        input.value = "改过的";
-        fire(input, "change");
-
-        (q("[data-ss-cancel]") as HTMLElement).click();
-
-        expect(mockState.confirms).toHaveLength(1);
         expect(mockState.settings[0].closed).toBe(false);
-        expect(panel.isOpen).toBe(true);
     });
 
-    it("重新打开时草稿按已保存的配置重建", async () => {
-        const {panel, host} = await open([featureOf("alpha")], {alpha: {enabled: true, label: "已存"}});
-        const input = panel.isOpen ?
-            mockState.settings[0].dialog!.element.querySelector<HTMLInputElement>('[data-ss-text="alpha::label"]') :
-            null;
-        expect(input?.value).toBe("已存");
-
+    it("重新打开时显示的就是磁盘上的值", async () => {
+        const {panel} = await open([featureOf("alpha")], {alpha: {enabled: true, label: "已存"}});
         panel.close();
         panel.show();
         const root = mockState.settings[mockState.settings.length - 1].dialog!.element;
         expect(root.querySelector<HTMLInputElement>('[data-ss-text="alpha::label"]')?.value).toBe("已存");
-        expect(host.saveData).not.toHaveBeenCalled();
-    });
-
-    it("保存后再次打开，草稿是刚存下的值", async () => {
-        const {q, panel} = await open();
-        const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
-        input.value = "第二次";
-        fire(input, "change");
-        (q("[data-ss-save]") as HTMLElement).click();
-        await vi.waitFor(() => expect(panel.isOpen).toBe(false));
-
-        panel.show();
-        const root = mockState.settings[mockState.settings.length - 1].dialog!.element;
-        expect(root.querySelector<HTMLInputElement>('[data-ss-text="alpha::label"]')?.value).toBe("第二次");
     });
 });
 
@@ -655,9 +657,6 @@ describe("动作行", () => {
 
         expect(host.files.get("feature-alpha")).toMatchObject({enabled: true});
         expect(q<HTMLInputElement>('[data-ss-switch="alpha::enabled"]')?.checked).toBe(true);
-        // 草稿也同步了：此时没有未保存改动
-        (q("[data-ss-cancel]") as HTMLElement).click();
-        expect(mockState.confirms).toHaveLength(0);
     });
 
     it("清除 / 导出 / 导入都转给配置存储", async () => {
@@ -681,7 +680,7 @@ describe("动作行", () => {
         expect(host.files.get("feature-alpha")).toMatchObject({label: "回来的"});
     });
 
-    it("动作行注册的清理回调在插件卸载时执行，取消/保存时不执行", async () => {
+    it("动作行注册的清理回调在插件卸载时执行，关面板时不执行", async () => {
         let context: FeatureActionContext | undefined;
         const onUnload = vi.fn();
         const {q, panel} = await open([featureOf("alpha", {
@@ -699,21 +698,6 @@ describe("动作行", () => {
 
         panel.dispose();
         expect(onUnload).toHaveBeenCalledTimes(1);
-    });
-
-    it("草稿被清空后 updateConfig 也能落盘，不会因为找不到草稿而中断", async () => {
-        let context: FeatureActionContext | undefined;
-        const {q, panel, host} = await open([featureOf("alpha", {
-            settings: alphaSettings((actionContext) => {
-                context = actionContext;
-            }),
-        })]);
-        (q('[data-ss-button="alpha::run"]') as HTMLElement).click();
-        await vi.waitFor(() => expect(context).toBeDefined());
-
-        (panel as unknown as {drafts: Map<string, unknown>;}).drafts.clear();
-        await expect(context!.updateConfig("alpha", {enabled: true})).resolves.toBeUndefined();
-        expect(host.files.get("feature-alpha")).toMatchObject({enabled: true});
     });
 
     it("onUnload 返回的函数可以单独注销这次清理", async () => {
@@ -874,22 +858,8 @@ describe("说明块外链", () => {
 });
 
 describe("异常路径", () => {
-    it("草稿丢失时按已保存的配置补建，用户改的东西不会丢", async () => {
-        const {q, panel, host} = await open();
-        (panel as unknown as {drafts: Map<string, unknown>;}).drafts.clear();
-        const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
-        input.value = "补建的";
-        fire(input, "change");
-
-        expect(vi.mocked(console.error)).toHaveBeenCalledWith(expect.stringContaining("has no draft"));
-        (q("[data-ss-save]") as HTMLElement).click();
-        await vi.waitFor(() => expect(mockState.settings[0].closed).toBe(true));
-        expect(host.files.get("feature-alpha")).toMatchObject({label: "补建的"});
-    });
-
     it("控件对应的功能不存在时只告警，改动被丢弃", async () => {
         const {q, panel} = await open();
-        (panel as unknown as {drafts: Map<string, unknown>;}).drafts.clear();
         (panel as unknown as {options: {features: FeatureDefinition[];};}).options.features = [];
         const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
         input.value = "丢弃";
@@ -897,16 +867,14 @@ describe("异常路径", () => {
         expect(vi.mocked(console.warn)).toHaveBeenCalledWith(expect.stringContaining("has no matching feature"));
     });
 
-    it("保存时遇到不带问题清单的异常也照常上报", async () => {
+    it("写盘抛出不带问题清单的异常时也照常上报", async () => {
         const {q, store} = await open();
-        const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
-        input.value = "改过的";
-        fire(input, "change");
-        store.saveMany = vi.fn(async () => {
+        store.patch = vi.fn(async () => {
             throw new Error("unexpected failure");
         });
-
-        (q("[data-ss-save]") as HTMLElement).click();
+        const toggle = q<HTMLInputElement>('[data-ss-switch="alpha::enabled"]')!;
+        toggle.checked = true;
+        fire(toggle, "change");
 
         await vi.waitFor(() =>
             expect(mockState.messages.some((m) => m.text.includes("unexpected failure"))).toBe(true)
@@ -952,14 +920,11 @@ describe("布局与宽度", () => {
         expect(root.querySelector<HTMLElement>(".b3-dialog__container")?.style.width).toBe("280px");
     });
 
-    it("内容区不滚动、内边距归零，动作区窄屏收窄", async () => {
+    it("内容区不滚动、内边距归零，滚动交给每一页", async () => {
         const {root} = await open();
         const content = root.querySelector<HTMLElement>(".b3-dialog__content")!;
         expect(content.style.padding).toBe("0px");
         expect(content.style.overflow).toBe("hidden");
-        expect(root.querySelector<HTMLElement>(".b3-dialog__action")?.style.padding).toBe("7px 24px");
-
-        setViewport(600);
     });
 
     it("独立设置窗口里不写宽度，交给宿主铺满", async () => {
@@ -977,7 +942,6 @@ describe("布局与宽度", () => {
         const container = root.querySelector<HTMLElement>(".b3-dialog__container")!;
         expect(container.style.width).toBe("");
         expect(root.querySelector<HTMLElement>(".b3-dialog__content")?.style.overflow).toBe("auto");
-        expect(root.querySelector<HTMLElement>(".b3-dialog__action")?.style.padding).toBe("7px 8px");
     });
 
     it("documentElement 量不到宽度时退回 window.innerWidth", async () => {
@@ -998,6 +962,22 @@ describe("布局与宽度", () => {
             vi.advanceTimersByTime(300);
             expect(container.style.width).toBe("476px");
             expect(container.dataset.ssNarrow).toBe("true");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("对话框被宿主从页面移除后停止监听视口", async () => {
+        vi.useFakeTimers();
+        try {
+            const {root} = await open();
+            const container = root.querySelector<HTMLElement>(".b3-dialog__container")!;
+            root.remove();
+            setViewport(500);
+            vi.advanceTimersByTime(300);
+
+            expect(container.style.width).toBe("900px");
+            expect(vi.getTimerCount()).toBe(0);
         } finally {
             vi.useRealTimers();
         }
