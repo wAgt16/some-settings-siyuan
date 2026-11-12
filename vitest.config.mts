@@ -24,7 +24,8 @@ export default defineConfig({
         restoreMocks: true,
         coverage: {
             provider: "v8",
-            include: ["src/core/**/*.ts"],
+            // 机制层与功能层都要算：功能是自己一个目录一个实现，漏测哪块一眼就能看出来
+            include: ["src/core/**/*.ts", "src/features/**/*.ts"],
             reporter: ["text", "text-summary"],
         },
     },
