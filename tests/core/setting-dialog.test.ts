@@ -58,7 +58,8 @@ class FakeHost {
         "category.settings": "设置",
         "common.enabled": "启用",
         "panel.none": "本宿主没有可用的设置项",
-        "panel.search.placeholder": "搜索设置",
+        "panel.search.placeholder": "搜索...",
+        "panel.search.clear": "清空搜索",
         "panel.search.none": "无结果",
         "panel.readonlyTip": "只读工作空间",
         "action.done": "动作已执行",
@@ -1346,7 +1347,46 @@ describe("搜索", () => {
 
         it("搜索框占位文案走 i18n", async () => {
             const {root} = await open(twoInEditor());
-            expect(searchBox(root).getAttribute("placeholder")).toBe("搜索设置");
+            expect(searchBox(root).getAttribute("placeholder")).toBe("搜索...");
+        });
+
+        it("一键清空按钮平时收起，输入内容后才出现", async () => {
+            const {root, q} = await open(twoInEditor());
+            const clear = q("[data-ss-search-clear]") as HTMLButtonElement;
+            expect(hidden(clear)).toBe(true);
+
+            typeQuery(searchBox(root), "甲");
+            expect(hidden(clear)).toBe(false);
+
+            typeQuery(searchBox(root), "");
+            expect(hidden(clear)).toBe(true);
+        });
+
+        it("点一键清空就回到分类视图，焦点留在搜索框", async () => {
+            const {root, q, panel} = await open(twoInEditor());
+            const input = searchBox(root);
+            typeQuery(input, "甲功能");
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(true);
+
+            (q("[data-ss-search-clear]") as HTMLButtonElement).click();
+
+            expect(input.value).toBe("");
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(false);
+            expect(hidden(q('[data-ss-feature="secondary"]'))).toBe(false);
+            expect(document.activeElement).toBe(input);
+            expect(panel.isOpen).toBe(true);
+        });
+
+        it("Esc 清空后清空按钮同样收起", async () => {
+            const {root, q} = await open(twoInEditor());
+            const input = searchBox(root);
+            const clear = q("[data-ss-search-clear]") as HTMLButtonElement;
+            typeQuery(input, "甲");
+            expect(hidden(clear)).toBe(false);
+
+            press({key: "Escape"});
+            expect(input.value).toBe("");
+            expect(hidden(clear)).toBe(true);
         });
     });
 

@@ -113,15 +113,21 @@ export interface PanelTab {
  *
  * 两端各放在自己的位置上（由 `tabViewsHtml` 与 `setting-dialog.ts` 决定）：
  * 桌面端在内容区顶部、设置行上方（页签栏左侧那条不变）；移动端在面板标题下方、页签栏上方。
- * 刻意用 `type="text"` 而不是 `type="search"`：后者在部分内核里会自带一颗清除按钮，
- * 而面板不提供清除按钮（手动删词或按 Esc）。
+ * 刻意用 `type="text"` 而不是 `type="search"`：浏览器的原生清除按钮样式不受主题控制，
+ * 面板自己放一颗（输入框内右侧、纯图标、思源内置 `iconClose`，有内容才出现）。
  */
-export const searchBoxHtml = (placeholder: string): string =>
+export const searchBoxHtml = (placeholder: string, clearLabel: string): string =>
     `<div class="${PANEL_CLASS}__search">
-    <input class="b3-text-field fn__block" type="text" data-ss-search="1" role="searchbox"
-    autocomplete="off" spellcheck="false" placeholder="${escapeHtml(placeholder)}" aria-label="${
+    <div class="${PANEL_CLASS}__search-field">
+        <input class="b3-text-field" type="text" data-ss-search="1" role="searchbox"
+        autocomplete="off" spellcheck="false" placeholder="${escapeHtml(placeholder)}" aria-label="${
         escapeHtml(placeholder)
     }"/>
+        <button class="${PANEL_CLASS}__search-clear fn__none" type="button" data-ss-search-clear="1"
+        aria-label="${escapeHtml(clearLabel)}" title="${escapeHtml(clearLabel)}">
+            <svg><use xlink:href="#iconClose"></use></svg>
+        </button>
+    </div>
 </div>`;
 
 /** 页签列表（桌面端：弹窗左侧的一列，照抄内核设置的 `.config__side`）。 */
@@ -559,13 +565,60 @@ export const PANEL_CSS = `
     flex: 0 0 auto;
     padding: 16px 24px 8px 48px;
 }
-.${PANEL_CLASS}__search .b3-text-field {
-    width: 100%;
-    box-sizing: border-box;
+/* 输入框与它里面那颗清空按钮算一格：按钮绝对定位在输入框内部右侧 */
+.${PANEL_CLASS}__search-field {
+    position: relative;
 }
 /* 桌面端不铺满整行：搜索框是一条输入框，不是标题栏。移动端仍然整行撑满（屏幕本来就窄）。 */
-.${PANEL_CLASS}:not(.${PANEL_CLASS}--mobile) .${PANEL_CLASS}__search .b3-text-field {
+.${PANEL_CLASS}:not(.${PANEL_CLASS}--mobile) .${PANEL_CLASS}__search-field {
     max-width: 22rem;
+}
+.${PANEL_CLASS}__search-field .b3-text-field {
+    width: 100%;
+    box-sizing: border-box;
+    /* 右侧给清空按钮让位，长文案不会压到图标上 */
+    padding-inline-end: 28px;
+}
+/* 一键清空：输入框内右侧的纯图标按钮（思源内置 iconClose）。有内容才出现，
+   颜色按内核那套次要图标取 --b3-theme-on-surface-light，悬停时加深。 */
+.${PANEL_CLASS}__search-clear {
+    position: absolute;
+    top: 50%;
+    inset-inline-end: 5px;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background-color: transparent;
+    color: var(--b3-theme-on-surface-light);
+    cursor: pointer;
+}
+.${PANEL_CLASS}__search-clear:hover,
+.${PANEL_CLASS}__search-clear:focus-visible {
+    color: var(--b3-theme-on-background);
+    background-color: var(--b3-list-hover);
+}
+.${PANEL_CLASS}__search-clear svg {
+    width: 11px;
+    height: 11px;
+    fill: currentColor;
+}
+/* 移动端是手指在点：按钮与图标都给大一档，输入框右侧同时多让出一点 */
+.${PANEL_CLASS}--mobile .${PANEL_CLASS}__search-clear {
+    width: 22px;
+    height: 22px;
+}
+.${PANEL_CLASS}--mobile .${PANEL_CLASS}__search-clear svg {
+    width: 13px;
+    height: 13px;
+}
+.${PANEL_CLASS}--mobile .${PANEL_CLASS}__search-field .b3-text-field {
+    padding-inline-end: 32px;
 }
 /* 移动端：搜索框整行撑满，落在面板标题下方、页签栏上方；不吸顶（吸顶的只有页签栏）。 */
 .${PANEL_CLASS}--mobile > .${PANEL_CLASS}__search {

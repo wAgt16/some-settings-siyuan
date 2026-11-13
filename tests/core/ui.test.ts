@@ -104,7 +104,7 @@ describe("页签结构", () => {
 
     it("搜索框排在页签容器之前，无结果提示跟在页签后面", () => {
         const root = parse(tabViewsHtml(
-            searchBoxHtml("搜索设置"),
+            searchBoxHtml("搜索...", "清空搜索"),
             tabPaneHtml("editor", "body", true),
             '<div class="empty"></div>',
         ));
@@ -117,19 +117,36 @@ describe("页签结构", () => {
 });
 
 describe("搜索框与分组标题", () => {
-    it("搜索框是 text 类型，没有内核自带的清除按钮", () => {
-        const input = query<HTMLInputElement>(searchBoxHtml("搜索设置"), "input")!;
+    it("搜索框是 text 类型，不用浏览器的原生清除按钮（样式不受主题控制）", () => {
+        const input = query<HTMLInputElement>(searchBoxHtml("搜索...", "清空搜索"), "input")!;
         expect(input.getAttribute("type")).toBe("text");
         expect(input.dataset.ssSearch).toBe("1");
-        expect(input.getAttribute("placeholder")).toBe("搜索设置");
-        expect(input.getAttribute("aria-label")).toBe("搜索设置");
+        expect(input.getAttribute("placeholder")).toBe("搜索...");
+        expect(input.getAttribute("aria-label")).toBe("搜索...");
         // 不做自动聚焦、不自动补全
         expect(input.hasAttribute("autofocus")).toBe(false);
         expect(input.getAttribute("autocomplete")).toBe("off");
     });
 
-    it("搜索框的占位文案被转义", () => {
-        expect(searchBoxHtml("<b>x</b>")).toContain("&lt;b&gt;x&lt;/b&gt;");
+    it("一键清空按钮在输入框内部右侧，用思源内置的 iconClose，默认收起", () => {
+        const root = parse(searchBoxHtml("搜索...", "清空搜索"));
+        const field = root.querySelector(`.${PANEL_CLASS}__search-field`);
+        const clear = field?.querySelector<HTMLButtonElement>("[data-ss-search-clear]");
+        expect(clear).not.toBeNull();
+        const button = clear as HTMLButtonElement;
+        // 与输入框同一格，按钮排在输入框之后（绝对定位在它内部右侧）
+        expect(button.previousElementSibling?.tagName).toBe("INPUT");
+        expect(button.getAttribute("type")).toBe("button");
+        expect(button.getAttribute("aria-label")).toBe("清空搜索");
+        expect(button.getAttribute("title")).toBe("清空搜索");
+        expect(button.querySelector("use")?.getAttribute("xlink:href")).toBe("#iconClose");
+        // 没有内容时不出现
+        expect(button.classList.contains("fn__none")).toBe(true);
+    });
+
+    it("搜索框的占位文案与按钮标签都被转义", () => {
+        expect(searchBoxHtml("<b>x</b>", "<i>y</i>")).toContain("&lt;b&gt;x&lt;/b&gt;");
+        expect(searchBoxHtml("<b>x</b>", "<i>y</i>")).toContain("&lt;i&gt;y&lt;/i&gt;");
     });
 
     it("分组标题平时收起，带分类 id 供面板显隐", () => {

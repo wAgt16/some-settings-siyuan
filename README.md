@@ -95,8 +95,8 @@ plugin adds no top bar button, no status bar item and no dock item.
 * The panel restores the tab that was open when it last closed, and falls back to the first tab if that one is gone.
 * The search box (top of the settings area on desktop, below the panel title on mobile) filters categories, features
   and setting items at once, showing each matched feature with all of its settings and highlighting the match;
-  `Ctrl/Cmd + F` or `/` focuses it and `Esc` only clears it. The query is never saved, and searching neither mounts
-  features nor writes configuration.
+  `Ctrl/Cmd + F` or `/` focuses it, and `Esc` or the clear icon inside the box only empties it. The query is never
+  saved, and searching neither mounts features nor writes configuration.
 * Detailed logging is off by default and leaves a single load hint in the console; once enabled under
   **This plugin**, every event is one INFO / WARN / ERROR line tagged with the feature id. The console log viewer
   only collects from the moment its own switch is on, so logs from plugin startup are never recorded.

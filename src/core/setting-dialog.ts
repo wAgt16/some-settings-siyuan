@@ -713,7 +713,7 @@ export class SettingsPanel {
         const items = tabs.map((tab, index) => tabItemHtml(tab, index === 0, mobile)).join("");
         // 搜索框两端各在自己的位置上：桌面端在内容区顶部（设置行上方），
         // 移动端在面板标题下方、页签栏上方。两端都不自动聚焦。
-        const search = searchBoxHtml(this.t("panel.search.placeholder"));
+        const search = searchBoxHtml(this.t("panel.search.placeholder"), this.t("panel.search.clear"));
         // 「无结果」只在搜索时可能露出来，平时一直收起。
         const empty = `<div class="${PANEL_CLASS}__empty ${PANEL_CLASS}__search-empty fn__none">${
             escapeHtml(this.t("panel.search.none"))
@@ -1312,6 +1312,14 @@ export class SettingsPanel {
         // 个别输入法在组合结束时不再补发 input，这里按最终文本再兜一次；文本没变就自己跳过。
         input.addEventListener("compositionend", () => this.updateSearch(input.value));
 
+        // 一键清空：输入框里那颗图标按钮。点了等于把词删空 —— 回到搜索前的视图，焦点留在搜索框里。
+        panel.querySelector<HTMLButtonElement>("[data-ss-search-clear]")?.addEventListener("click", () => {
+            input.value = "";
+            this.updateSearch("");
+            this.focusSearch(input);
+        });
+        this.syncSearchClear();
+
         // 快捷键挂在 document 的捕获阶段：宿主的「在文档里搜索」也听着 Ctrl/Cmd + F，
         // 只有捕获阶段才能赶在它前面把键拦下来。面板关闭时由 disposeSearch() 收掉。
         if (this.searchKeys) {
@@ -1370,6 +1378,17 @@ export class SettingsPanel {
         }
     }
 
+    /** 输入框里有内容才露出那颗一键清空按钮；空的时候整颗收起，不占位也不进 Tab 序。 */
+    private syncSearchClear(): void {
+        const root = this.dialog?.element;
+        const input = root?.querySelector<HTMLInputElement>("[data-ss-search]");
+        const clear = root?.querySelector<HTMLElement>("[data-ss-search-clear]");
+        if (!input || !clear) {
+            return;
+        }
+        clear.classList.toggle("fn__none", input.value === "");
+    }
+
     /** 聚焦搜索框并选中已有查询：接着打字就是替换，按一次退格还能回到原来的词。 */
     private focusSearch(input: HTMLInputElement): void {
         input.focus();
@@ -1383,6 +1402,8 @@ export class SettingsPanel {
      * （运行时下拉选项、函数型按钮文字）不打断当前结果；等下一次真正的输入再按最新索引算。
      */
     private updateSearch(raw: string): void {
+        // 清空按钮跟着输入框里的内容走：不管这次是打字、点按钮还是 Esc 清的，都只在这里同步一次
+        this.syncSearchClear();
         const keywords = parseQuery(raw);
         if (keywords.length === 0) {
             this.searchText = "";
