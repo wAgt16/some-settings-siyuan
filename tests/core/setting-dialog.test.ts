@@ -124,8 +124,9 @@ interface Opened {
 const open = async (
     definitions: FeatureDefinition[] = [featureOf("alpha")],
     stored: Record<string, unknown> = {},
+    existingHost?: FakeHost,
 ): Promise<Opened> => {
-    const host = new FakeHost();
+    const host = existingHost ?? new FakeHost();
     Object.entries(stored).forEach(([id, value]) => host.files.set(`feature-${id}`, value));
     const store = new ConfigStore(host.asPlugin());
     for (const definition of definitions) {
@@ -473,6 +474,98 @@ describe("页签交互", () => {
         const second = qa("[data-ss-tab]")[1];
         second.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", isComposing: true}));
         expect(second.getAttribute("aria-selected")).toBeNull();
+    });
+
+    it("关闭时保存当前页签，新面板直接恢复它", async () => {
+        const first = await open(twoTabs());
+        first.qa("[data-ss-tab]")[1].click();
+        first.panel.close();
+        await vi.waitFor(() => expect(first.host.files.get("feature-panel-state")).toEqual({tab: "appearance"}));
+
+        const second = await open(twoTabs(), {}, first.host);
+        await vi.waitFor(() =>
+            expect(second.q('[data-ss-tab="appearance"]')?.getAttribute("aria-selected")).toBe("true")
+        );
+        expect(second.q('[data-ss-tab-panel="appearance"]')?.classList.contains("fn__none")).toBe(false);
+        expect(second.q('[data-ss-tab-panel="editor"]')?.classList.contains("fn__none")).toBe(true);
+    });
+
+    it("记忆的页签已经不存在时退回首个页签", async () => {
+        const {qa} = await open(twoTabs(), {"panel-state": {tab: "settings"}});
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(qa("[data-ss-tab]")[0].getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("没有切换页签时关闭不重复写状态", async () => {
+        const {host, panel} = await open(twoTabs(), {"panel-state": {tab: "editor"}});
+        await vi.waitFor(() => expect(host.loadData).toHaveBeenCalledWith("feature-panel-state"));
+        await Promise.resolve();
+        panel.close();
+        await Promise.resolve();
+        expect(host.saveData).not.toHaveBeenCalledWith("feature-panel-state", expect.anything());
+    });
+
+    it("插件卸载关闭面板时也保存页签", async () => {
+        const {host, panel, qa} = await open(twoTabs());
+        qa("[data-ss-tab]")[1].click();
+        panel.dispose();
+        await vi.waitFor(() => expect(host.files.get("feature-panel-state")).toEqual({tab: "appearance"}));
+    });
+
+    it("页签状态写盘失败时给出可见错误", async () => {
+        const {host, panel, qa} = await open(twoTabs());
+        host.rejectWrites = true;
+        qa("[data-ss-tab]")[1].click();
+        panel.close();
+        await vi.waitFor(() =>
+            expect(mockState.messages.some((message) => message.text.includes("settings.panel-state"))).toBe(true)
+        );
+        expect(host.files.get("feature-panel-state")).toBeUndefined();
+    });
+
+    it("读取历史状态时用户已经手动切页，以用户的选择为准", async () => {
+        let releaseRead: (() => void) | undefined;
+        const blocked = new Promise<void>((resolve) => {
+            releaseRead = resolve;
+        });
+        const {host, panel} = await open(twoTabs());
+        host.loadData.mockImplementation(async (name: string): Promise<unknown> => {
+            if (name === "feature-panel-state") {
+                await blocked;
+            }
+            return host.files.get(name) ?? "";
+        });
+        host.files.set("feature-panel-state", {tab: "editor"});
+        panel.close();
+        panel.show();
+        const root = mockState.settings[mockState.settings.length - 1].dialog!.element;
+        const tabs = [...root.querySelectorAll<HTMLElement>("[data-ss-tab]")];
+        tabs[1].click();
+        releaseRead?.();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("旧面板的异步读取不会覆盖重新打开后的页签", async () => {
+        let releaseRead: (() => void) | undefined;
+        const blocked = new Promise<void>((resolve) => {
+            releaseRead = resolve;
+        });
+        const first = await open(twoTabs());
+        first.host.loadData.mockImplementation(async (name: string): Promise<unknown> => {
+            if (name === "feature-panel-state") {
+                await blocked;
+            }
+            return first.host.files.get(name) ?? "";
+        });
+        first.panel.close();
+        first.panel.show();
+        releaseRead?.();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(first.qa("[data-ss-tab]")[0].getAttribute("aria-selected")).toBe("true");
     });
 });
 

@@ -38,6 +38,7 @@ import type {
 } from "siyuan";
 import {bindPendingClick} from "./click";
 import type {ConfigStore} from "./config";
+import {storageNameOf} from "./config";
 import {
     guardAsync,
     guardSilent,
@@ -46,6 +47,10 @@ import {
 import {withoutMobileInputFocus} from "./frontend";
 import {preheatDialogLayer} from "./layer";
 import {openExternalLink} from "./link";
+import {
+    readStoredFile,
+    writeStoredFile,
+} from "./storage";
 import type {
     FeatureActionContext,
     FeatureCategory,
@@ -80,6 +85,12 @@ import {
 } from "./ui";
 
 const CATEGORY_ORDER: FeatureCategory[] = FEATURE_CATEGORIES;
+/** 面板自身的状态与功能配置放在一起，导出、导入和清除时也会一并处理。 */
+const PANEL_STATE_ID = "panel-state";
+const PANEL_STATE_FILE = storageNameOf(PANEL_STATE_ID);
+interface PanelState {
+    tab?: string;
+}
 
 /** 分类文案的 i18n key：与分类 id 一一对应，`npm run check` 会校验两份语言文件都有。 */
 const categoryLabelKey = (category: FeatureCategory): string => `category.${category}`;
@@ -220,6 +231,16 @@ export class SettingsPanel {
     private viewportTimer?: number;
     /** 动作行注册的「插件卸载时」清理回调。 */
     private readonly unloadListeners = new Set<() => void>();
+    /** 当前页签；内存里先更新，关闭面板时再落盘。 */
+    private currentTab?: FeatureCategory;
+    /** 上一次打开面板时从磁盘读到的状态，用来挡掉没有变化的重复写盘。 */
+    private storedTab?: FeatureCategory;
+    /** 用户已经手动选过页签后，迟到的读盘结果不能再抢回旧页签。 */
+    private tabTouched = false;
+    /** 连续关闭 / 重开时页签写入按顺序完成，旧写入不能覆盖新值。 */
+    private tabWriteQueue: Promise<void> = Promise.resolve();
+    /** 面板的这一次打开；异步读盘回来时，旧的打开过程不能覆盖新面板。 */
+    private showGeneration = 0;
 
     constructor(options: SettingsPanelOptions) {
         this.options = options;
@@ -255,10 +276,15 @@ export class SettingsPanel {
         ensurePanelCss();
         const mobile = isMobileFrontend();
 
+        const generation = ++this.showGeneration;
+        this.tabTouched = false;
+        // 已落盘状态属于这一次打开，不能被上一次关闭的异步写盘顺带改掉。
+        this.storedTab = undefined;
         const setting = new Setting({
             destroyCallback: () => {
                 // 关面板时把还在静默期里的那一次补上：用户改完直接关窗，改动也不会丢。
                 void this.flushPending();
+                void this.saveTab(generation);
                 this.setting = undefined;
                 this.dialog = undefined;
                 this.pending = new Map();
@@ -320,6 +346,7 @@ export class SettingsPanel {
 
         this.render();
         this.hideActionBar();
+        void this.restoreTab(generation);
 
         if (isReadonly()) {
             showMessage(this.t("panel.readonlyTip"), 5000);
@@ -479,6 +506,7 @@ export class SettingsPanel {
         const mobile = isMobileFrontend();
         const tabs: PanelTab[] = [];
         const panes: string[] = [];
+        this.currentTab = undefined;
         CATEGORY_ORDER.forEach((category) => {
             const features = this.visibleFeatures(category);
             if (features.length === 0) {
@@ -544,6 +572,7 @@ export class SettingsPanel {
                 icon: CATEGORY_ICONS[category],
             });
             panes.push(tabPaneHtml(category, markLastRow(rows.join("")), tabs.length === 1));
+            this.currentTab ??= category;
         });
         if (tabs.length === 0) {
             panel.innerHTML = `<div class="${PANEL_CLASS}__empty">${escapeHtml(this.t("panel.none"))}</div>`;
@@ -563,13 +592,17 @@ export class SettingsPanel {
     private bindTabs(scope: HTMLElement): void {
         scope.querySelectorAll<HTMLElement>("[data-ss-tab]").forEach((item) => {
             const id = item.dataset.ssTab as string;
-            item.addEventListener("click", () => this.activateTab(id));
+            item.addEventListener("click", () => {
+                this.tabTouched = true;
+                this.activateTab(id);
+            });
             item.addEventListener("keydown", (event) => {
                 if (event.isComposing || (event.key !== "Enter" && event.key !== " ")) {
                     return;
                 }
                 event.preventDefault();
                 event.stopPropagation();
+                this.tabTouched = true;
                 this.activateTab(id);
             });
         });
@@ -595,6 +628,61 @@ export class SettingsPanel {
         root.querySelectorAll<HTMLElement>("[data-ss-tab-panel]").forEach((pane) => {
             pane.classList.toggle("fn__none", pane.dataset.ssTabPanel !== id);
         });
+        this.currentTab = id as FeatureCategory;
+    }
+
+    /**
+     * 恢复上一次关闭时的页签。
+     *
+     * show() 保持同步：先画出默认页签，再读状态，存储慢也不会拖住对话框。
+     * 页签可能因功能退役或前端不同而消失，只恢复当前确实存在的页签。
+     */
+    private async restoreTab(generation: number): Promise<void> {
+        const stored = await readStoredFile(this.options.plugin, PANEL_STATE_FILE);
+        if (generation !== this.showGeneration || !this.setting || this.tabTouched) {
+            return;
+        }
+        const tab = typeof stored === "object" && stored !== null && !Array.isArray(stored) ?
+            (stored as PanelState).tab :
+            undefined;
+        if (typeof tab !== "string") {
+            return;
+        }
+        const available = CATEGORY_ORDER.some((category) =>
+            category === tab && this.visibleFeatures(category).length > 0
+        );
+        if (!available) {
+            return;
+        }
+        this.storedTab = tab as FeatureCategory;
+        this.activateTab(tab);
+    }
+
+    /** 关闭面板时记住当前页签；与功能配置一样写后读回，失败必须可见。 */
+    private saveTab(generation: number): Promise<void> {
+        const tab = this.currentTab;
+        const task = this.tabWriteQueue.catch((): void => undefined).then(async () => {
+            if (isReadonly() || !tab || tab === this.storedTab) {
+                return;
+            }
+            const value: PanelState = {tab};
+            const status = await writeStoredFile(this.options.plugin, PANEL_STATE_FILE, value);
+            if (!status.ok) {
+                throw new Error(status.detail);
+            }
+            const readBack = await readStoredFile(this.options.plugin, PANEL_STATE_FILE);
+            const actual = typeof readBack === "object" && readBack !== null && !Array.isArray(readBack) ?
+                (readBack as PanelState).tab :
+                undefined;
+            if (actual !== tab) {
+                throw new Error(`tab: wrote ${JSON.stringify(tab)} / read back ${JSON.stringify(actual)}`);
+            }
+            if (generation === this.showGeneration) {
+                this.storedTab = tab;
+            }
+        });
+        this.tabWriteQueue = task;
+        return task.catch((error: unknown) => reportError("settings.panel-state", error));
     }
 
     /**
