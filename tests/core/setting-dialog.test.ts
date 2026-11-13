@@ -56,7 +56,10 @@ class FakeHost {
         "category.editor": "编辑",
         "category.appearance": "外观",
         "category.settings": "设置",
+        "common.enabled": "启用",
         "panel.none": "本宿主没有可用的设置项",
+        "panel.search.placeholder": "搜索设置",
+        "panel.search.none": "无结果",
         "panel.readonlyTip": "只读工作空间",
         "action.done": "动作已执行",
     };
@@ -1267,5 +1270,501 @@ describe("关闭与卸载", () => {
 
         expect(() => panel.dispose()).not.toThrow();
         expect(vi.mocked(console.error)).toHaveBeenCalled();
+    });
+});
+
+/**
+ * 全局搜索（issue #119）。
+ *
+ * 搜索只是面板的过滤机制：不新增功能、不加开关、不读写配置。这里按三块验证：
+ * - 索引与匹配：能搜到什么、关键词怎么算命中；
+ * - 显隐与恢复：命中后隐藏分类导航、聚合结果，清空后原样退回；
+ * - 期间的状态：控件照常可用、待写文本不丢、高亮与快捷键。
+ */
+describe("搜索", () => {
+    const HIT = `mark.${PANEL_CLASS}__hit`;
+    const SEARCH = `.${PANEL_CLASS}--search`;
+
+    const searchBox = (root: HTMLElement): HTMLInputElement => {
+        const input = root.querySelector<HTMLInputElement>("[data-ss-search]");
+        if (!input) {
+            throw new Error("the panel has no search box");
+        }
+        return input;
+    };
+
+    /** 像用户打字那样改搜索框的值并触发 input。 */
+    const typeQuery = (input: HTMLInputElement, value: string): void => {
+        input.value = value;
+        fire(input, "input");
+    };
+
+    const hidden = (element: Element | null | undefined): boolean => Boolean(element?.classList.contains("fn__none"));
+
+    /** 在 document 上按一次键；面板的快捷键挂在捕获阶段。 */
+    const press = (init: KeyboardEventInit & {isComposing?: boolean;}): KeyboardEvent => {
+        const event = new KeyboardEvent("keydown", {bubbles: true, cancelable: true, ...init});
+        if (init.isComposing) {
+            Object.defineProperty(event, "isComposing", {value: true});
+        }
+        document.dispatchEvent(event);
+        return event;
+    };
+
+    /** 同一页里放两个功能：命中一个，另一个应当整体收起。 */
+    const twoInEditor = (): FeatureDefinition[] => [
+        featureOf("alpha", {category: "editor"}),
+        featureOf("secondary", {category: "editor"}),
+    ];
+
+    describe("位置与初始状态", () => {
+        it("桌面端搜索框在内容区顶部、设置行上方，不在左侧栏里", async () => {
+            const {q} = await open(twoInEditor());
+            const views = q(`.${PANEL_CLASS}__views`);
+            const box = views?.querySelector(`.${PANEL_CLASS}__search`);
+            expect(box).not.toBeNull();
+            // 内容区的第一块是搜索框，第二块才是页签容器
+            expect(views?.children[0]).toBe(box);
+            expect(views?.children[1]?.className).toContain(`${PANEL_CLASS}__panes`);
+            // 左侧栏只剩分类列表
+            expect(q(`.${PANEL_CLASS}__side`)?.querySelector("[data-ss-search]")).toBeNull();
+            expect(box?.querySelector("[data-ss-search]")).not.toBeNull();
+        });
+
+        it("移动端搜索框在面板标题下方、页签栏上方", async () => {
+            mockState.frontend = "mobile";
+            const {panelElement} = await open(twoInEditor());
+            expect(panelElement.children[0]?.className).toContain(`${PANEL_CLASS}__search`);
+            expect(panelElement.children[1]?.className).toContain("layout-tab-bar");
+        });
+
+        it("打开面板不自动聚焦搜索框（移动端因此不会弹键盘）", async () => {
+            mockState.frontend = "mobile";
+            const {root} = await open(twoInEditor());
+            expect(document.activeElement).not.toBe(searchBox(root));
+        });
+
+        it("搜索框占位文案走 i18n", async () => {
+            const {root} = await open(twoInEditor());
+            expect(searchBox(root).getAttribute("placeholder")).toBe("搜索设置");
+        });
+    });
+
+    describe("索引与匹配", () => {
+        it("内部 id 与字段 key 始终可搜，且忽略大小写", async () => {
+            const {root, q} = await open(twoInEditor());
+            const input = searchBox(root);
+
+            typeQuery(input, "ALPHA");
+            expect(hidden(q('[data-ss-feature="alpha"]'))).toBe(false);
+            expect(hidden(q('[data-ss-feature="secondary"]'))).toBe(true);
+
+            typeQuery(input, "SIZE");
+            expect(hidden(q('[data-ss-feature="alpha"]'))).toBe(false);
+        });
+
+        it("关键词必须落在同一个字段上：跨字段拼不成一次命中", async () => {
+            const {root, q} = await open(twoInEditor());
+            const input = searchBox(root);
+            const empty = q(`.${PANEL_CLASS}__search-empty`);
+
+            // 「功能」只在功能名里，「说明」只在功能说明里：一个字段都凑不齐
+            typeQuery(input, "功能 说明");
+            expect(hidden(empty)).toBe(false);
+            // 同一个字段里都有 → 命中（说明是「甲的说明」）
+            typeQuery(input, "甲 说明");
+            expect(hidden(empty)).toBe(true);
+            expect(hidden(q('[data-ss-feature="alpha"]'))).toBe(false);
+        });
+
+        it("静态文案的中英文版本算一个匹配域：命中另一语言时不高亮", async () => {
+            const {root, q, qa} = await open([featureOf("alpha", {
+                settings: [
+                    {kind: "switch", key: "enabled", title: "alpha.enabled", default: false},
+                    {kind: "switch", key: "extra", title: "common.enabled", default: false},
+                ],
+            })]);
+            const input = searchBox(root);
+
+            // 界面上显示的是中文「启用」，搜英文 enable 也要命中
+            typeQuery(input, "enable");
+            expect(hidden(q('[data-ss-feature="alpha"]'))).toBe(false);
+            // 命中的是另一份语言版本：不显示额外来源，也不强行把英文文案拉出来
+            expect(qa(HIT)).toHaveLength(0);
+            expect(q('[data-ss-feature="alpha"]')?.textContent).not.toContain("Enable");
+        });
+
+        it("分类名命中时显示该分类的全部功能", async () => {
+            const {root, q} = await open([
+                featureOf("alpha", {category: "editor"}),
+                featureOf("secondary", {category: "appearance"}),
+            ]);
+            const input = searchBox(root);
+
+            typeQuery(input, "编辑");
+            expect(hidden(q('[data-ss-feature="alpha"]'))).toBe(false);
+            expect(hidden(q('[data-ss-feature="secondary"]'))).toBe(true);
+            expect(hidden(q('[data-ss-tab-panel="appearance"]'))).toBe(true);
+            expect(hidden(q('[data-ss-search-group="editor"]'))).toBe(false);
+            // 分类名命中也要能聚合成结果视图：导航收起、面板挂上搜索类
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(SEARCH.replace(".", ""))).toBe(true);
+        });
+
+        it("命中功能时显示它的全部可见设置项，包括没直接命中的字段", async () => {
+            const {root, q, qa} = await open(twoInEditor());
+            const input = searchBox(root);
+
+            typeQuery(input, "甲的说明");
+            const rows = qa('[data-ss-feature="alpha"]');
+            // 开关行 + 数字 + 文本 + 下拉 + 说明块 + 动作行
+            expect(rows).toHaveLength(6);
+            expect(rows.every((row) => !hidden(row))).toBe(true);
+            expect(q('[data-ss-feature="secondary"]')?.classList.contains("fn__none")).toBe(true);
+        });
+
+        it("分类与功能按现有声明顺序排，不做相关度排序", async () => {
+            // 声明顺序是「外观」在前，但结果分组按 FEATURE_CATEGORIES 的顺序（编辑器在前）
+            const {root, qa} = await open([
+                featureOf("secondary", {category: "appearance"}),
+                featureOf("alpha", {category: "editor"}),
+            ]);
+            typeQuery(searchBox(root), "功能");
+            const groups = qa("[data-ss-search-group]")
+                .filter((group) => !hidden(group))
+                .map((group) => group.dataset.ssSearchGroup);
+            expect(groups).toEqual(["editor", "appearance"]);
+        });
+
+        it("无结果时只显示「无结果」，不展示空分类也没有清除按钮", async () => {
+            const {root, q, qa} = await open(twoInEditor());
+            typeQuery(searchBox(root), "没有这个设置");
+
+            expect(qa("[data-ss-tab-panel]").every((pane) => hidden(pane))).toBe(true);
+            const empty = q(`.${PANEL_CLASS}__search-empty`);
+            expect(hidden(empty)).toBe(false);
+            expect(empty?.textContent).toBe("无结果");
+            expect(qa(HIT)).toHaveLength(0);
+        });
+    });
+
+    describe("显隐与恢复", () => {
+        it("有查询时收起分类导航，但保留搜索框", async () => {
+            const {root, q} = await open(twoInEditor());
+            const input = searchBox(root);
+            typeQuery(input, "甲");
+
+            // 桌面端整根左侧栏（分类列表）收起，搜索框在内容区里，照旧可用
+            expect(hidden(q(`.${PANEL_CLASS}__side`))).toBe(true);
+            expect(hidden(input.closest(`.${PANEL_CLASS}__search`))).toBe(false);
+            expect(hidden(q(`.${PANEL_CLASS}__views`))).toBe(false);
+        });
+
+        it("移动端有查询时收起的是顶部页签栏", async () => {
+            mockState.frontend = "mobile";
+            const {root, q, panelElement} = await open(twoInEditor());
+            typeQuery(searchBox(root), "甲");
+            expect(hidden(q(".layout-tab-bar"))).toBe(true);
+            expect(panelElement.classList.contains(`${PANEL_CLASS}--search`)).toBe(true);
+        });
+
+        it("清空后恢复分类、页签、行与最后一行标记", async () => {
+            const {root, q, qa} = await open(twoInEditor());
+            const input = searchBox(root);
+
+            typeQuery(input, "甲的说明");
+            typeQuery(input, "");
+
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(false);
+            expect(hidden(q(`.${PANEL_CLASS}__side`))).toBe(false);
+            expect(qa(".config-item").every((row) => !hidden(row))).toBe(true);
+            expect(hidden(q('[data-ss-search-group="editor"]'))).toBe(true);
+            expect(hidden(q(`.${PANEL_CLASS}__search-empty`))).toBe(true);
+            // 最后一行标记回到整页最后一行（第二个功能的动作行）
+            const last = qa(".config-item--last-visible");
+            expect(last).toHaveLength(1);
+            expect(last[0].dataset.ssFeature).toBe("secondary");
+        });
+
+        it("过滤后子行的收尾标记仍落在每个可见功能的最后一个子行上", async () => {
+            const {root, qa} = await open(twoInEditor());
+            const input = searchBox(root);
+
+            typeQuery(input, "甲功能");
+            const duringSearch = qa(`.${PANEL_CLASS}__child--last`);
+            expect(duringSearch).toHaveLength(1);
+            expect(duringSearch[0].dataset.ssRow).toBe("alpha::run");
+
+            typeQuery(input, "");
+            expect(qa(`.${PANEL_CLASS}__child--last`).map((row) => row.dataset.ssRow))
+                .toEqual(["alpha::run", "secondary::run"]);
+        });
+
+        it("清空后回到搜索前的滚动位置", async () => {
+            const {root, q} = await open(twoInEditor());
+            const input = searchBox(root);
+            const pane = q('[data-ss-tab-panel="editor"]') as HTMLElement;
+            const content = q(".b3-dialog__content") as HTMLElement;
+            pane.scrollTop = 40;
+            content.scrollTop = 7;
+
+            typeQuery(input, "甲");
+            // 搜索期间视图换成了结果列，滚动位置另算
+            typeQuery(input, "");
+
+            expect(pane.scrollTop).toBe(40);
+            expect(content.scrollTop).toBe(7);
+        });
+
+        it("只有空白等于没搜：视图不动", async () => {
+            const {root, q} = await open(twoInEditor());
+            typeQuery(searchBox(root), "   ");
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(false);
+            expect(hidden(q(`.${PANEL_CLASS}__tabs`))).toBe(false);
+        });
+
+        it("搜索中迟到的页签恢复不会拆掉结果视图", async () => {
+            const host = new FakeHost();
+            const release = gatePanelState(host);
+            const {root, q} = await open(
+                [
+                    featureOf("alpha", {category: "editor"}),
+                    featureOf("secondary", {category: "appearance"}),
+                ],
+                {"panel-state": {tab: "appearance"}},
+                host,
+            );
+            typeQuery(searchBox(root), "甲功能");
+
+            release();
+            await vi.waitFor(() =>
+                expect(q('[data-ss-tab="appearance"]')?.classList.contains("b3-list-item--focus")).toBe(true)
+            );
+
+            // 页签换到了「外观」，但结果视图还在：命中视图不被拆掉
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(true);
+            expect(hidden(q('[data-ss-feature="alpha"]'))).toBe(false);
+            expect(hidden(q('[data-ss-feature="secondary"]'))).toBe(true);
+            expect(hidden(q('[data-ss-tab-panel="appearance"]'))).toBe(true);
+        });
+
+        it("搜索词只存在于本次面板会话：重新打开是空的", async () => {
+            const {root, panel} = await open(twoInEditor());
+            typeQuery(searchBox(root), "甲");
+            panel.close();
+            panel.show();
+
+            const reopened = mockState.settings[mockState.settings.length - 1].dialog?.element as HTMLElement;
+            expect(searchBox(reopened).value).toBe("");
+            expect(reopened.querySelector(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(false);
+        });
+    });
+
+    describe("搜索期间的状态", () => {
+        it("结果里的控件照常可用，改动立即落盘", async () => {
+            const {root, q, host} = await open(twoInEditor());
+            typeQuery(searchBox(root), "甲");
+
+            const toggle = q<HTMLInputElement>('[data-ss-switch="alpha::enabled"]') as HTMLInputElement;
+            toggle.checked = true;
+            fire(toggle, "change");
+
+            await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({enabled: true}));
+        });
+
+        it("结果里的文本输入照常按静默期落盘，继续搜不会丢掉待写的内容", async () => {
+            const {root, q, host} = await open(twoInEditor());
+            const search = searchBox(root);
+            typeQuery(search, "甲");
+
+            const text = q<HTMLInputElement>('[data-ss-text="alpha::label"]') as HTMLInputElement;
+            text.value = "搜索中改的";
+            fire(text, "input");
+            // 继续在搜索框里打字：结果重算，但控件还是同一份 DOM，没有重建
+            typeQuery(search, "甲功");
+            expect(q('[data-ss-text="alpha::label"]')).toBe(text);
+
+            await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({label: "搜索中改的"}));
+        });
+
+        it("搜索本身不写任何配置", async () => {
+            const {root, host} = await open(twoInEditor());
+            const input = searchBox(root);
+            typeQuery(input, "甲");
+            typeQuery(input, "功能");
+            typeQuery(input, "");
+            expect(host.saveData).not.toHaveBeenCalled();
+        });
+
+        it("改设置不清空查询、也不重新过滤", async () => {
+            const {root, q} = await open(twoInEditor());
+            const input = searchBox(root);
+            typeQuery(input, "甲功能");
+            const secondaryRow = q('[data-ss-feature="secondary"]') as HTMLElement;
+
+            const toggle = q<HTMLInputElement>('[data-ss-switch="secondary::enabled"]') as HTMLInputElement;
+            toggle.checked = true;
+            fire(toggle, "change");
+
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(true);
+            expect(hidden(secondaryRow)).toBe(true);
+            expect(input.value).toBe("甲功能");
+        });
+
+        it("动态文案更新了索引，也不马上改变当前结果；清空再输入才按最新索引算", async () => {
+            let options = [{value: "a", label: "alpha.auto"}];
+            const {root, q, qa} = await open([featureOf("alpha", {
+                settings: [
+                    {kind: "switch", key: "enabled", title: "alpha.enabled", default: false},
+                    {
+                        kind: "select",
+                        key: "mode",
+                        title: "alpha.mode",
+                        default: "a",
+                        optionsProvider: () => options,
+                    },
+                ],
+            })]);
+            const input = searchBox(root);
+
+            typeQuery(input, "手动");
+            const empty = q(`.${PANEL_CLASS}__search-empty`);
+            expect(hidden(empty)).toBe(false);
+
+            // 候选集变了，但查询文本没变：当前命中集合不许被打断
+            options = [{value: "a", label: "alpha.auto"}, {value: "b", label: "alpha.manual"}];
+            typeQuery(input, "手动");
+            expect(hidden(empty)).toBe(false);
+
+            // 清空后重新输入：按最新索引重新算
+            typeQuery(input, "");
+            typeQuery(input, "手动");
+            expect(hidden(empty)).toBe(true);
+            expect(qa('[data-ss-feature="alpha"]').every((row) => !hidden(row))).toBe(true);
+        });
+    });
+
+    describe("高亮", () => {
+        it("同一段文案里的多个关键词分别高亮", async () => {
+            const {root, qa} = await open(twoInEditor());
+            typeQuery(searchBox(root), "甲 说明");
+            expect(qa(HIT).map((mark) => mark.textContent)).toEqual(["甲", "甲", "说明"]);
+        });
+
+        it("高亮只换包装，不解析 HTML：查询里的标签原样当文字", async () => {
+            const {root, q} = await open(twoInEditor());
+            typeQuery(searchBox(root), '<img src=x onerror="alert(1)">');
+            expect(q('[data-ss-feature="alpha"] img')).toBeNull();
+            expect(q('[data-ss-feature="alpha"] .config-item__main')?.textContent).toContain("甲功能");
+        });
+
+        it("清空搜索后高亮消失、文案复原", async () => {
+            const {root, q, qa} = await open(twoInEditor());
+            const input = searchBox(root);
+            typeQuery(input, "甲");
+            expect(qa(HIT).length).toBeGreaterThan(0);
+
+            typeQuery(input, "");
+            expect(qa(HIT)).toHaveLength(0);
+            expect(q('[data-ss-feature="alpha"] .config-item__main')?.textContent).toBe("甲功能甲的说明");
+        });
+
+        it("没有命中文字的分组标题与行内说明都不加标记", async () => {
+            const {root, qa} = await open(twoInEditor());
+            // 命中另一个功能的说明，alpha 整块收起，不该留下任何标记
+            typeQuery(searchBox(root), "甲的说明");
+            expect(qa(HIT).every((mark) => !mark.closest('[data-ss-feature="secondary"]'))).toBe(true);
+        });
+    });
+
+    describe("快捷键", () => {
+        it("`/` 聚焦搜索框并选中已有查询", async () => {
+            const {root} = await open(twoInEditor());
+            const input = searchBox(root);
+            typeQuery(input, "甲");
+            input.blur();
+
+            const event = press({key: "/"});
+            expect(event.defaultPrevented).toBe(true);
+            expect(document.activeElement).toBe(input);
+            expect(input.selectionStart).toBe(0);
+            expect(input.selectionEnd).toBe(1);
+        });
+
+        it("`/` 在编辑控件里不劫持", async () => {
+            const {root, q} = await open(twoInEditor());
+            const text = q<HTMLInputElement>('[data-ss-text="alpha::label"]') as HTMLInputElement;
+            text.focus();
+
+            const event = press({key: "/"});
+            expect(event.defaultPrevented).toBe(false);
+            expect(document.activeElement).toBe(text);
+            expect(searchBox(root).value).toBe("");
+        });
+
+        it("Ctrl/Cmd + F 在面板内聚焦搜索框并阻止宿主搜索", async () => {
+            const {root} = await open(twoInEditor());
+            const input = searchBox(root);
+            const event = press({key: "f", ctrlKey: true});
+            expect(event.defaultPrevented).toBe(true);
+            expect(document.activeElement).toBe(input);
+        });
+
+        it("Esc 有查询时只清空搜索、保留焦点、不关面板", async () => {
+            const {root, q, panel} = await open(twoInEditor());
+            const input = searchBox(root);
+            typeQuery(input, "甲");
+
+            const event = press({key: "Escape"});
+            expect(event.defaultPrevented).toBe(true);
+            expect(input.value).toBe("");
+            expect(document.activeElement).toBe(input);
+            expect(panel.isOpen).toBe(true);
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(false);
+        });
+
+        it("Esc 没有查询时不拦截，交给宿主", async () => {
+            const {root} = await open(twoInEditor());
+            searchBox(root).blur();
+            const event = press({key: "Escape"});
+            expect(event.defaultPrevented).toBe(false);
+        });
+
+        it("输入法组合输入期间的按键不当作快捷键", async () => {
+            const {root} = await open(twoInEditor());
+            const input = searchBox(root);
+            input.blur();
+            const event = press({key: "/", isComposing: true});
+            expect(event.defaultPrevented).toBe(false);
+            expect(document.activeElement).not.toBe(input);
+        });
+
+        it("输入法组合输入期间不执行过滤，组合结束才按最终文本过滤", async () => {
+            const {root, q} = await open(twoInEditor());
+            const input = searchBox(root);
+
+            const composing = new Event("input", {bubbles: true});
+            Object.defineProperty(composing, "isComposing", {value: true});
+            input.value = "甲功能";
+            input.dispatchEvent(composing);
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(false);
+
+            fire(input, "compositionend");
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(true);
+            expect(hidden(q('[data-ss-feature="secondary"]'))).toBe(true);
+        });
+    });
+
+    describe("面板其它状态不受影响", () => {
+        it("搜索不改变分类的持久化：关面板写下的仍是当前页签", async () => {
+            const {root, host, panel, q} = await open([
+                featureOf("alpha", {category: "editor"}),
+                featureOf("secondary", {category: "appearance"}),
+            ]);
+            typeQuery(searchBox(root), "功能");
+            panel.close();
+
+            await vi.waitFor(() => expect(host.files.get("feature-panel-state")).toEqual({tab: "editor"}));
+            expect(q(`.${PANEL_CLASS}`)).not.toBeNull();
+        });
     });
 });

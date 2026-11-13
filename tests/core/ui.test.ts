@@ -23,6 +23,8 @@ import {
     numberRowHtml,
     PANEL_CLASS,
     PANEL_CSS,
+    searchBoxHtml,
+    searchGroupHtml,
     selectControlHtml,
     selectRowHtml,
     subtitleRowHtml,
@@ -95,8 +97,46 @@ describe("页签结构", () => {
     });
 
     it("内容区容器包住每一页", () => {
-        const root = parse(tabViewsHtml(tabPaneHtml("editor", "body", true)));
-        expect(root.querySelector(`.${PANEL_CLASS}__views > .${PANEL_CLASS}__view`)).not.toBeNull();
+        const root = parse(tabViewsHtml("", tabPaneHtml("editor", "body", true)));
+        expect(root.querySelector(`.${PANEL_CLASS}__views > .${PANEL_CLASS}__panes > .${PANEL_CLASS}__view`))
+            .not.toBeNull();
+    });
+
+    it("搜索框排在页签容器之前，无结果提示跟在页签后面", () => {
+        const root = parse(tabViewsHtml(
+            searchBoxHtml("搜索设置"),
+            tabPaneHtml("editor", "body", true),
+            '<div class="empty"></div>',
+        ));
+        const views = root.querySelector(`.${PANEL_CLASS}__views`);
+        expect(views?.children[0]?.className).toContain(`${PANEL_CLASS}__search`);
+        expect(views?.children[1]?.className).toContain(`${PANEL_CLASS}__panes`);
+        // 无结果提示在页签容器里，跟着结果一起滚
+        expect(views?.querySelector(`.${PANEL_CLASS}__panes > .empty`)).not.toBeNull();
+    });
+});
+
+describe("搜索框与分组标题", () => {
+    it("搜索框是 text 类型，没有内核自带的清除按钮", () => {
+        const input = query<HTMLInputElement>(searchBoxHtml("搜索设置"), "input")!;
+        expect(input.getAttribute("type")).toBe("text");
+        expect(input.dataset.ssSearch).toBe("1");
+        expect(input.getAttribute("placeholder")).toBe("搜索设置");
+        expect(input.getAttribute("aria-label")).toBe("搜索设置");
+        // 不做自动聚焦、不自动补全
+        expect(input.hasAttribute("autofocus")).toBe(false);
+        expect(input.getAttribute("autocomplete")).toBe("off");
+    });
+
+    it("搜索框的占位文案被转义", () => {
+        expect(searchBoxHtml("<b>x</b>")).toContain("&lt;b&gt;x&lt;/b&gt;");
+    });
+
+    it("分组标题平时收起，带分类 id 供面板显隐", () => {
+        const group = query<HTMLElement>(searchGroupHtml("editor", "编辑"), "div")!;
+        expect(group.dataset.ssSearchGroup).toBe("editor");
+        expect(group.textContent).toBe("编辑");
+        expect(group.classList.contains("fn__none")).toBe(true);
     });
 });
 

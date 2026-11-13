@@ -40,7 +40,7 @@ export const PANEL_CLASS = "some-settings-panel";
  * （全部由 `setting-dialog.ts` 的 `fieldHtml()` 调用），所以类名直接写在它们里面，
  * 调用方不需要再传一个「这一行是子行」的开关。以后加新的行类型也照这个约定写。
  */
-const CHILD_CLASS = `${PANEL_CLASS}__child`;
+export const CHILD_CLASS = `${PANEL_CLASS}__child`;
 
 /**
  * 「一个功能的最后一个子行」的标记类名。
@@ -108,6 +108,22 @@ export interface PanelTab {
     icon: string;
 }
 
+/**
+ * 面板搜索框。
+ *
+ * 两端各放在自己的位置上（由 `tabViewsHtml` 与 `setting-dialog.ts` 决定）：
+ * 桌面端在内容区顶部、设置行上方（页签栏左侧那条不变）；移动端在面板标题下方、页签栏上方。
+ * 刻意用 `type="text"` 而不是 `type="search"`：后者在部分内核里会自带一颗清除按钮，
+ * 而面板不提供清除按钮（手动删词或按 Esc）。
+ */
+export const searchBoxHtml = (placeholder: string): string =>
+    `<div class="${PANEL_CLASS}__search">
+    <input class="b3-text-field fn__block" type="text" data-ss-search="1" role="searchbox"
+    autocomplete="off" spellcheck="false" placeholder="${escapeHtml(placeholder)}" aria-label="${
+        escapeHtml(placeholder)
+    }"/>
+</div>`;
+
 /** 页签列表（桌面端：弹窗左侧的一列，照抄内核设置的 `.config__side`）。 */
 export const tabSideHtml = (itemsHtml: string): string =>
     `<div class="${PANEL_CLASS}__side b3-list b3-list--background">
@@ -151,7 +167,26 @@ export const tabPaneHtml = (id: string, bodyHtml: string, active: boolean): stri
     <div class="config-items">${bodyHtml}</div>
 </div>`;
 
-export const tabViewsHtml = (panesHtml: string): string => `<div class="${PANEL_CLASS}__views">${panesHtml}</div>`;
+/**
+ * 搜索结果里一个分类的分组标题。
+ *
+ * 它排在页签内容的第一行，平时带 `fn__none` 收起 —— 搜索结果要把所有命中的分类拼成一列，
+ * 分类名就是那一组的分组标题，而普通状态下分类由页签表达，标题不该出现。
+ */
+export const searchGroupHtml = (category: string, label: string): string =>
+    `<div class="${PANEL_CLASS}__group fn__none" data-ss-search-group="${escapeHtml(category)}">${
+        escapeHtml(label)
+    }</div>`;
+
+/**
+ * 页签内容区：顶部一块搜索框（移动端传空串，搜索框在面板标题下方），下面是一叠页签。
+ *
+ * 搜索框是滚动容器**外面**的一行：桌面端每一页自己滚、搜索时由 `.some-settings-panel__panes`
+ * 滚，两种情况下搜索框都留在内容区顶部，不会被内容顶走，也不额外吸顶。
+ * `trailingHtml`（无结果提示）放在页签容器里，跟着结果一起滚。
+ */
+export const tabViewsHtml = (searchHtml: string, panesHtml: string, trailingHtml = ""): string =>
+    `<div class="${PANEL_CLASS}__views">${searchHtml}<div class="${PANEL_CLASS}__panes">${panesHtml}${trailingHtml}</div></div>`;
 
 /** 开关控件本体（不含行容器）：功能自己那一行与参数行共用同一份标记。 */
 export const switchControlHtml = (
@@ -494,30 +529,66 @@ export const PANEL_CSS = `
 .${PANEL_CLASS}__side .b3-list-item__graphic {
     padding: 0 6px 0 4px;
 }
-/* 页签内容：每一页都铺满内容区，只有当前页留在文档流里（其余是 fn__none），
-   滚动各自独立 —— 弹窗自己的 .b3-dialog__content 不再滚动。 */
+/* 搜索框：桌面端在内容区顶部、设置行上方（移动端由 --mobile 那段单独摆放）。
+   左侧内边距是「页签内容的 24px + 行自己的 24px」，输入框左端与行标题（.config-item__main
+   的文字起点）对齐，而不是跟行间分割线的左端对齐；上下留白就靠这一圈内边距，
+   不加边框也不做成卡片。 */
+.${PANEL_CLASS}__search {
+    flex: 0 0 auto;
+    padding: 16px 24px 8px 48px;
+}
+.${PANEL_CLASS}__search .b3-text-field {
+    width: 100%;
+    box-sizing: border-box;
+}
+/* 桌面端不铺满整行：搜索框是一条输入框，不是标题栏。移动端仍然整行撑满（屏幕本来就窄）。 */
+.${PANEL_CLASS}:not(.${PANEL_CLASS}--mobile) .${PANEL_CLASS}__search .b3-text-field {
+    max-width: 22rem;
+}
+/* 移动端：搜索框整行撑满，落在面板标题下方、页签栏上方；不吸顶（吸顶的只有页签栏）。 */
+.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__search {
+    padding: 8px 8px 0;
+}
+/* 页签内容：最上面一行是搜索框，下面一叠页签。只有当前页留在文档流里（其余是 fn__none），
+   滚动各自独立 —— 弹窗自己的 .b3-dialog__content 不再滚动，搜索框也不会被内容顶走。 */
 .${PANEL_CLASS}__views {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.${PANEL_CLASS}__panes {
     position: relative;
     flex: 1;
     min-width: 0;
     min-height: 0;
     overflow: hidden;
 }
+/* 顶部内边距比两侧小：上面就是搜索框，再空 24px 会把首行推得太远 */
 .${PANEL_CLASS}__view {
     position: absolute;
     inset: 0;
     overflow: auto;
     box-sizing: border-box;
-    padding: 24px;
+    padding: 4px 24px 24px;
 }
 /* 移动端：整块面板按自然高度排版，滚动交给宿主的内容区（抽屉高度就是量它量出来的）。
-   所以这里把「每页绝对定位 + 各自滚动」拆掉，改成正常文档流；页签栏的吸顶由上面那条规则负责。 */
+   所以这里把「每页绝对定位 + 各自滚动」拆掉，改成正常文档流；页签栏的吸顶由上面那条规则负责。
+   移动端的搜索框在面板标题下方（不在这个容器里），这里只是不再占一行。 */
 .${PANEL_CLASS}--mobile > .${PANEL_CLASS}__views {
     position: static;
     flex: 0 0 auto;
     overflow: visible;
 }
-.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__views > .${PANEL_CLASS}__view {
+.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__views > .${PANEL_CLASS}__panes {
+    position: static;
+    flex: 0 0 auto;
+    overflow: visible;
+}
+.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__views > .${PANEL_CLASS}__panes > .${PANEL_CLASS}__view {
     position: static;
     overflow: visible;
     padding: 8px;
@@ -526,6 +597,47 @@ export const PANEL_CSS = `
 .${PANEL_CLASS} .config-items {
     background-color: transparent;
     border-radius: 0;
+}
+/* 搜索结果视图 -----------------------------------------------------------
+   输入有效关键词后，所有命中的分类按声明顺序拼成一列：桌面端由 views 自己滚（每页不再
+   各自占满整块、也不再分别滚动），移动端本来就是正常文档流、交给宿主的内容区滚。
+   原来的分类导航（左侧页签列表 / 顶部页签栏）由 JS 收起，搜索框留在原处。
+   页签内容的内边距在这里归零：行有自己的内边距，再叠一层只会让结果左右缩进一大截。 */
+.${PANEL_CLASS}--search > .${PANEL_CLASS}__views > .${PANEL_CLASS}__panes {
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+.${PANEL_CLASS}--search > .${PANEL_CLASS}__views > .${PANEL_CLASS}__panes > .${PANEL_CLASS}__view {
+    position: static;
+    overflow: visible;
+    /* 横向内边距与普通状态一致：结果列的分割线、文案不会因为搜索而左右跳一下 */
+    padding: 0 24px;
+}
+.${PANEL_CLASS}--search.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__views > .${PANEL_CLASS}__panes {
+    overflow: visible;
+}
+.${PANEL_CLASS}--search.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__views > .${PANEL_CLASS}__panes >
+.${PANEL_CLASS}__view {
+    position: static;
+    overflow: visible;
+    padding: 0 8px;
+}
+/* 分组标题：搜索时分类名作为这一组结果的小标题，平时收起（普通状态下分类由页签表达）。
+   横向内边距与行文案的起点对齐（页签内容 24px + 行自己的 24px 里只算这一层，
+   所以这里写 24px 就落在行标题那条竖线上；窄屏跟着 10px 走，见媒体查询）。 */
+.${PANEL_CLASS}__group {
+    padding: 12px 24px 4px;
+    color: var(--b3-theme-on-surface);
+    opacity: .7;
+    font-size: .85em;
+    line-height: 1.6;
+    user-select: none;
+}
+/* 命中文字：只换底色，字号与字重都不动 —— 高亮不能改变行本身的样子。 */
+.${PANEL_CLASS}__hit {
+    background-color: var(--b3-theme-primary-lightest);
+    color: inherit;
+    border-radius: 2px;
 }
 /* 子设置行缩进 -----------------------------------------------------------
    功能名那一行（__sub）保持原样，它下面的参数行、说明块、动作行统一缩进一小格，
@@ -695,6 +807,19 @@ export const PANEL_CSS = `
     }
     .b3-dialog__body .${PANEL_CLASS}__side .b3-list-item__text {
         display: none;
+    }
+    /* 搜索框的横向内边距跟着窄屏走：左侧同样对齐到行标题（页签内容 8px + 行 10px） */
+    .b3-dialog__body .${PANEL_CLASS} .${PANEL_CLASS}__search {
+        padding: 8px 10px 6px 18px;
+    }
+    /* 搜索结果的分组标题：窄屏下留白与横向内边距一起跟着 10px 走 */
+    .b3-dialog__body .${PANEL_CLASS} .${PANEL_CLASS}__group {
+        padding: 8px 10px 4px;
+    }
+    /* 窄屏下结果列的横向内边距也收到 10px，与普通状态的行一致 */
+    .b3-dialog__body .${PANEL_CLASS}.${PANEL_CLASS}--search > .${PANEL_CLASS}__views >
+    .${PANEL_CLASS}__panes > .${PANEL_CLASS}__view {
+        padding: 0 10px;
     }
     .b3-dialog__body .${PANEL_CLASS} .b3-label.config-item,
     .b3-dialog__body .${PANEL_CLASS} .config-item {

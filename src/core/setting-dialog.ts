@@ -24,6 +24,11 @@
  * 合并写盘，失焦立即写，关面板时把还没落地的那一次补上。写盘失败时 store 已把内存态退回改动
  * 之前，面板再把控件改回磁盘上的值并让错误可见。
  *
+ * 搜索：面板内置全局搜索（分类名、功能、设置项一起搜），它只是面板的**过滤机制** ——
+ * 不新增功能、不增加开关、不读写任何配置。命中时把原来那些页签里的行就地显隐、拼成一列结果
+ * （分类名作为分组标题），**不重建面板**，所以输入框焦点、滚动位置与还在静默期里的输入都不受影响。
+ * 匹配、高亮分段的纯逻辑在 `core/search.ts`；这里只管 DOM 侧的显隐、分组与高亮写入。
+ *
  * 生命周期同样只有显式入口：关面板、插件卸载（外加内核自己的 Esc）。关面板时补写待落地的改动。
  * **不监听窗口失焦，也不监听 `document` 可见性** —— 两者都不等于「用户离开了」，
  * 详见 `docs/development.md` 里的第 12 条。
@@ -48,6 +53,17 @@ import {withoutMobileInputFocus} from "./frontend";
 import {preheatDialogLayer} from "./layer";
 import {openExternalLink} from "./link";
 import {createLogger} from "./log";
+import type {
+    SearchField,
+    SearchIndex,
+    SearchRecord,
+} from "./search";
+import {
+    fieldOf,
+    highlightSegments,
+    matchIndex,
+    parseQuery,
+} from "./search";
 import {
     readStoredFile,
     writeStoredFile,
@@ -63,15 +79,19 @@ import {FEATURE_CATEGORIES} from "./types";
 import {
     actionButtonHtml,
     buttonRowHtml,
+    CHILD_CLASS,
     ensurePanelCss,
     escapeHtml,
     isMobileFrontend,
+    LAST_CHILD_CLASS,
     markLastChildRow,
     noteBodyHtml,
     noteRowHtml,
     numberRowHtml,
     PANEL_CLASS,
     type PanelTab,
+    searchBoxHtml,
+    searchGroupHtml,
     selectControlHtml,
     selectRowHtml,
     subtitleRowHtml,
@@ -84,6 +104,10 @@ import {
     tabViewsHtml,
     textRowHtml,
 } from "./ui";
+// 搜索要把静态文案的**两种语言**都索引进同一个匹配域，而宿主只交出当前语言那一份 i18n，
+// 所以这里把两份语言文件一起打进包里：它们本来就是插件自带的，读取时不经过任何运行时 API。
+import enLocale from "../i18n/en.json";
+import zhLocale from "../i18n/zh-CN.json";
 
 const log = createLogger("core.panel");
 
@@ -93,6 +117,16 @@ const PANEL_STATE_ID = "panel-state";
 const PANEL_STATE_FILE = storageNameOf(PANEL_STATE_ID);
 interface PanelState {
     tab?: string;
+}
+
+/** 搜索前的滚动位置：桌面端每页自己滚，移动端滚的是宿主的内容区，两处都要记。 */
+interface SearchSnapshot {
+    /** 弹窗内容区的滚动位置（移动端整块由它滚）。 */
+    content: number;
+    /** 页签容器的滚动位置（桌面端搜索时结果列由它滚）。 */
+    views: number;
+    /** 每一页各自的滚动位置，键是分类 id。 */
+    panes: Map<string, number>;
 }
 
 /** 分类文案的 i18n key：与分类 id 一一对应，`npm run check` 会校验两份语言文件都有。 */
@@ -157,6 +191,20 @@ const parseBindKey = (value: string): [string, string] => {
         [value.slice(0, index), value.slice(index + BIND_SEPARATOR.length)];
 };
 
+/** 「这一页最后一行」的标记类名：去掉它多余的下分割线。 */
+const LAST_ROW_CLASS = "config-item--last-visible";
+
+/** 行上的面板私有元数据：这一行属于哪个功能。搜索按它显隐整个功能。 */
+const ROW_FEATURE_ATTR = "data-ss-feature";
+
+/**
+ * 判断一份 class 属性是不是「一个行」的：行带 `config-item` 这个整词。
+ *
+ * 说明块这类行内部还有自己的元素与 class（段落是 `b3-label__text`、
+ * 数字行是 `config-item__number`），照着别的词下手会改到行内部去。
+ */
+const isRowClass = (classes: string): boolean => classes.split(/\s+/).includes("config-item");
+
 /**
  * 给一段行 HTML 里最后一行打上「不可见最后一行」标记。
  *
@@ -170,7 +218,7 @@ const markLastRow = (rowsHtml: string): string => {
     let index = -1;
     let match = pattern.exec(rowsHtml);
     while (match) {
-        if (match[1].split(/\s+/).includes("config-item")) {
+        if (isRowClass(match[1])) {
             index = match.index;
         }
         match = pattern.exec(rowsHtml);
@@ -180,8 +228,49 @@ const markLastRow = (rowsHtml: string): string => {
     }
     const head = rowsHtml.slice(0, index + 'class="'.length);
     const tail = rowsHtml.slice(index + 'class="'.length);
-    return `${head}config-item--last-visible ${tail}`;
+    return `${head}${LAST_ROW_CLASS} ${tail}`;
 };
+
+/**
+ * 给一个功能的全部行打上「这一行属于哪个功能」的元数据。
+ *
+ * 搜索要把「分类 / 功能 / 字段」和 DOM 行对应起来：字段本来就能从 `data-ss-row`
+ * （`功能 id::字段 key`）读出来，功能却只在行与行之间隐含 —— 于是这里在拼行时补上。
+ * 做法与 `markLastRow()` 一致：只认带 `config-item` 整词的 class 属性，
+ * 不会标记到行内部那块文案上，也不依赖任何行构造器的参数（新行类型自动带上）。
+ */
+const tagRows = (rowsHtml: string, featureId: string): string =>
+    rowsHtml.replace(
+        /class="([^"]*)"/g,
+        (whole: string, classes: string) =>
+            isRowClass(classes) ? `${whole} ${ROW_FEATURE_ATTR}="${escapeHtml(featureId)}"` : whole,
+    );
+
+/** `NodeFilter.SHOW_TEXT`：直接写数值，省得依赖全局 NodeFilter（测试环境里不一定有）。 */
+const SHOW_TEXT = 4;
+
+/** 命中文字外面那层 `<mark>` 的类名。 */
+const HIT_CLASS = `${PANEL_CLASS}__hit`;
+
+/** 搜索结果视图挂在面板根上的状态类。 */
+const SEARCH_CLASS = `${PANEL_CLASS}--search`;
+
+/** 焦点是不是停在「可以输入文字」的控件上：这时 `/` 属于用户要输入的字符，不是快捷键。 */
+const isEditingControl = (element: Element | null): boolean => {
+    if (!element) {
+        return false;
+    }
+    const tag = element.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (element as HTMLElement).isContentEditable;
+};
+
+/**
+ * 静态 i18n 文案的另一份语言文件。
+ *
+ * 搜索要把同一个字段的中英文版本当成一个匹配域，而宿主的 `plugin.i18n` 只含当前语言。
+ * 两份语言文件本来就是插件自带的资源，直接读它们即可，不经过任何运行时 API。
+ */
+const LOCALE_TEXTS: readonly Record<string, string>[] = [enLocale, zhLocale] as readonly Record<string, string>[];
 
 /** 视口变化轮询间隔。 */
 const VIEWPORT_POLL_MS = 250;
@@ -246,6 +335,16 @@ export class SettingsPanel {
     private showGeneration = 0;
     /** 页签栏还没量到宽度时，下一帧补滚的那一次。 */
     private revealFrame?: number;
+    /** 搜索是否正在生效（结果是「搜索状态」而不是「有没有输入框焦点」）。 */
+    private searchActive = false;
+    /** 上一次真正过滤用的查询原文：文本没变就不重算，也不清空当前结果。 */
+    private searchText = "";
+    /** 搜索前的滚动位置，清空搜索时原样还给用户。 */
+    private searchSnapshot?: SearchSnapshot;
+    /** 面板打开期间挂在 document 上的快捷键监听。 */
+    private searchKeys?: (event: KeyboardEvent) => void;
+    /** 恢复滚动位置的那一帧（个别内核算不到滚动高度时补一次）。 */
+    private scrollFrame?: number;
 
     constructor(options: SettingsPanelOptions) {
         this.options = options;
@@ -289,8 +388,9 @@ export class SettingsPanel {
         this.tabTouched = false;
         // 已落盘状态属于这一次打开，不能被上一次关闭的异步写盘顺带改掉。
         this.storedTab = undefined;
-        // 上一次打开留下的补滚帧指向旧的对话框，先收掉。
+        // 上一次打开留下的补滚帧指向旧的对话框，先收掉；搜索状态与快捷键监听一并复位。
         this.cancelRevealFrame();
+        this.disposeSearch();
         const setting = new Setting({
             destroyCallback: () => {
                 // 关面板时把还在静默期里的那一次补上：用户改完直接关窗，改动也不会丢。
@@ -302,6 +402,7 @@ export class SettingsPanel {
                 this.clearFlushTimer();
                 this.stopViewportWatch();
                 this.cancelRevealFrame();
+                this.disposeSearch();
             },
         }) as SettingWithDialog;
         this.setting = setting;
@@ -573,20 +674,22 @@ export class SettingsPanel {
                             readonly,
                         ),
                     };
-                rows.push(
-                    subtitleRowHtml(
-                        this.nameOf(feature),
-                        feature.description ? this.t(feature.description) : "",
-                        inline || undefined,
-                    ),
-                );
                 // 子行先各自成串，再给这个功能的最后一行打上标记：层级引导线要在那里收尾（画成 └）。
                 // 不能交给 CSS 的 :last-child —— 行是跨功能平铺的，它只看得见整页最后一行。
                 const childRows: string[] = [];
                 feature.settings
                     .filter((field) => field !== toggle && field !== inlineSelect)
                     .forEach((field) => childRows.push(this.fieldHtml(feature, field, config, readonly)));
-                rows.push(markLastChildRow(childRows.join("")));
+                const featureRows = [
+                    subtitleRowHtml(
+                        this.nameOf(feature),
+                        feature.description ? this.t(feature.description) : "",
+                        inline || undefined,
+                    ),
+                    markLastChildRow(childRows.join("")),
+                ];
+                // 每行都带上「属于哪个功能」的元数据：搜索靠它整块显隐一个功能。
+                rows.push(tagRows(featureRows.join(""), feature.id));
             });
             // 页签只在这里出现一次：顺序、文案与图标都由这一处决定，默认打开第一个有内容的页签
             tabs.push({
@@ -594,7 +697,12 @@ export class SettingsPanel {
                 label: this.t(categoryLabelKey(category), category),
                 icon: CATEGORY_ICONS[category],
             });
-            panes.push(tabPaneHtml(category, markLastRow(rows.join("")), tabs.length === 1));
+            // 分类名那一行是搜索结果的分组标题：平时收起，搜索时显示（见 searchGroupHtml）。
+            panes.push(tabPaneHtml(
+                category,
+                searchGroupHtml(category, this.t(categoryLabelKey(category), category)) + markLastRow(rows.join("")),
+                tabs.length === 1,
+            ));
             this.currentTab ??= category;
         });
         if (tabs.length === 0) {
@@ -603,9 +711,19 @@ export class SettingsPanel {
             return;
         }
         const items = tabs.map((tab, index) => tabItemHtml(tab, index === 0, mobile)).join("");
-        panel.innerHTML = (mobile ? tabBarHtml(items) : tabSideHtml(items)) + tabViewsHtml(panes.join(""));
+        // 搜索框两端各在自己的位置上：桌面端在内容区顶部（设置行上方），
+        // 移动端在面板标题下方、页签栏上方。两端都不自动聚焦。
+        const search = searchBoxHtml(this.t("panel.search.placeholder"));
+        // 「无结果」只在搜索时可能露出来，平时一直收起。
+        const empty = `<div class="${PANEL_CLASS}__empty ${PANEL_CLASS}__search-empty fn__none">${
+            escapeHtml(this.t("panel.search.none"))
+        }</div>`;
+        panel.innerHTML = mobile ?
+            search + tabBarHtml(items) + tabViewsHtml("", panes.join(""), empty) :
+            tabSideHtml(items) + tabViewsHtml(search, panes.join(""), empty);
         this.bindControls(panel);
         this.bindTabs(panel);
+        this.bindSearch(panel);
         log.info(`panel rendered with ${tabs.length} tab(s)`, tabs.map((tab) => tab.id));
     }
 
@@ -753,6 +871,11 @@ export class SettingsPanel {
         }
         this.storedTab = tab as FeatureCategory;
         this.activateTab(tab);
+        // 读盘慢时用户可能已经开始搜了：页签切换会把结果视图的显隐改掉，按当前查询再过滤一遍。
+        // 清空搜索时恢复的仍是这个页签（`currentTab` 已经跟着改了）。
+        if (this.searchActive) {
+            this.filterSearch(parseQuery(this.searchText));
+        }
     }
 
     /** 关闭面板时记住当前页签；与功能配置一样写后读回，失败必须可见。 */
@@ -1165,5 +1288,474 @@ export class SettingsPanel {
                 input.value = String(config[key] ?? "");
             }
         });
+    }
+
+    // ------------------------------------------------------------ 搜索
+
+    /**
+     * 绑定搜索框与快捷键。搜索只是面板自己的过滤机制，不注册任何功能、不读写配置。
+     *
+     * 输入事件即时过滤，但**组合输入（中文输入法）期间什么都不做**：一个词还没上屏，
+     * 过滤出来的是半成品，而且高亮会把正在拼的字拆散。
+     */
+    private bindSearch(panel: HTMLElement): void {
+        const input = panel.querySelector<HTMLInputElement>("[data-ss-search]");
+        if (!input) {
+            return;
+        }
+        input.addEventListener("input", (event) => {
+            if ((event as InputEvent).isComposing) {
+                return;
+            }
+            this.updateSearch(input.value);
+        });
+        // 个别输入法在组合结束时不再补发 input，这里按最终文本再兜一次；文本没变就自己跳过。
+        input.addEventListener("compositionend", () => this.updateSearch(input.value));
+
+        // 快捷键挂在 document 的捕获阶段：宿主的「在文档里搜索」也听着 Ctrl/Cmd + F，
+        // 只有捕获阶段才能赶在它前面把键拦下来。面板关闭时由 disposeSearch() 收掉。
+        if (this.searchKeys) {
+            document.removeEventListener("keydown", this.searchKeys, true);
+        }
+        const onKeyDown = (event: KeyboardEvent): void => this.handleSearchKey(event);
+        this.searchKeys = onKeyDown;
+        document.addEventListener("keydown", onKeyDown, true);
+    }
+
+    /**
+     * 面板打开期间的快捷键：`/` 与 `Ctrl/Cmd + F` 聚焦搜索框，`Esc` 分层清空。
+     *
+     * - `/` 在编辑控件（文本 / 数字 / 下拉 / 可编辑区）里是用户要输入的字符，不劫持
+     * - `Esc` 有查询时只清空搜索、回到搜索前的视图并保留搜索框焦点，面板不关；
+     *   没有查询时不拦，交还宿主原本的行为（关面板）
+     * - 组合输入期间的按键属于输入法，一律不处理
+     */
+    private handleSearchKey(event: KeyboardEvent): void {
+        // 面板没开（或正在关闭）时这些键不属于我们
+        if (!this.setting || !this.dialog) {
+            return;
+        }
+        if (event.isComposing || event.keyCode === 229) {
+            return;
+        }
+        const input = this.dialog.element.querySelector<HTMLInputElement>("[data-ss-search]");
+        if (!input) {
+            return;
+        }
+        const withCommand = (event.ctrlKey || event.metaKey) && !event.altKey;
+        if (withCommand && event.key.toLowerCase() === "f") {
+            event.preventDefault();
+            event.stopPropagation();
+            this.focusSearch(input);
+            return;
+        }
+        if (event.key === "Escape") {
+            if (!this.searchActive) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            input.value = "";
+            this.updateSearch("");
+            this.focusSearch(input);
+            return;
+        }
+        if (event.key === "/" && !withCommand) {
+            if (isEditingControl(document.activeElement)) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            this.focusSearch(input);
+        }
+    }
+
+    /** 聚焦搜索框并选中已有查询：接着打字就是替换，按一次退格还能回到原来的词。 */
+    private focusSearch(input: HTMLInputElement): void {
+        input.focus();
+        input.select();
+    }
+
+    /**
+     * 输入变化的唯一入口：**文本真的变了才重算**。
+     *
+     * 同样的文本再触发一次（组合输入结束、`/` 选中已有查询）不重算 —— 期间改过的动态文案
+     * （运行时下拉选项、函数型按钮文字）不打断当前结果；等下一次真正的输入再按最新索引算。
+     */
+    private updateSearch(raw: string): void {
+        const keywords = parseQuery(raw);
+        if (keywords.length === 0) {
+            this.searchText = "";
+            this.quitSearch();
+            return;
+        }
+        if (this.searchActive && raw === this.searchText) {
+            return;
+        }
+        if (!this.searchActive) {
+            this.beginSearch();
+        }
+        this.searchText = raw;
+        this.filterSearch(keywords);
+    }
+
+    /**
+     * 进入搜索状态：记下滚动位置，收起分类导航，给面板根挂上结果视图的类。
+     *
+     * 只加类、不动内容 —— 面板结构原样留着，切回来时一点都不用重建。
+     */
+    private beginSearch(): void {
+        const root = this.dialog?.element;
+        if (!root) {
+            return;
+        }
+        this.captureScroll(root);
+        this.searchActive = true;
+        this.panelElement(root)?.classList.add(SEARCH_CLASS);
+        // 分类导航给结果视图让位：桌面端整根收起左侧栏（搜索框在内容区里，不受影响），
+        // 移动端只收起那条页签栏（搜索框在它上面）
+        root.querySelector<HTMLElement>(`.${PANEL_CLASS}__side`)?.classList.add("fn__none");
+        root.querySelector<HTMLElement>(".layout-tab-bar")?.classList.add("fn__none");
+        log.info("search started");
+    }
+
+    /**
+     * 按查询显隐现成的行，不重建任何东西。
+     *
+     * 命中粒度是「功能」：分类名命中 → 该分类全部功能；功能或它的任一设置项命中 →
+     * 显示该功能的**全部**可见设置项（包括没直接命中的字段）。分类与功能都按声明顺序排，
+     * 不做相关度排序。每次过滤都现拼索引，所以拿到的是「最新」的动态文案。
+     */
+    private filterSearch(keywords: string[]): void {
+        const root = this.dialog?.element;
+        if (!root) {
+            return;
+        }
+        const hits = matchIndex(this.buildSearchIndex(), keywords);
+        this.clearHighlights(root);
+        let shown = 0;
+        root.querySelectorAll<HTMLElement>("[data-ss-tab-panel]").forEach((pane) => {
+            const category = pane.dataset.ssTabPanel as string;
+            const showAll = hits.categories.has(category);
+            const featureRows = this.rowsByFeature(pane);
+            let visible = 0;
+            featureRows.forEach((rows, id) => {
+                const show = showAll || hits.features.has(id);
+                if (show) {
+                    visible += 1;
+                }
+                rows.forEach((row) => row.classList.toggle("fn__none", !show));
+            });
+            pane.classList.toggle("fn__none", visible === 0);
+            pane.querySelector<HTMLElement>("[data-ss-search-group]")?.classList.toggle("fn__none", visible === 0);
+            if (visible === 0) {
+                return;
+            }
+            shown += visible;
+            this.refreshLastRow(pane);
+            this.refreshChildMarks(featureRows);
+            this.highlightPane(pane, keywords);
+        });
+        // 无结果时只留这一行提示：空分类已经整页收起，这里也不挂清除按钮
+        root.querySelector<HTMLElement>(`.${PANEL_CLASS}__search-empty`)?.classList.toggle("fn__none", shown > 0);
+        log.info("search filtered", {keywords, features: shown});
+    }
+
+    /**
+     * 退出搜索：恢复分类导航、当前页签、每一页的最后一行标记与搜索前的滚动位置。
+     *
+     * 只动显隐类与文字，不重建面板 —— 搜索结果里正在编辑的输入框、还没落盘的文本都留在原处。
+     */
+    private quitSearch(): void {
+        if (!this.searchActive) {
+            return;
+        }
+        this.searchActive = false;
+        const root = this.dialog?.element;
+        if (!root) {
+            return;
+        }
+        this.panelElement(root)?.classList.remove(SEARCH_CLASS);
+        root.querySelector<HTMLElement>(`.${PANEL_CLASS}__side`)?.classList.remove("fn__none");
+        root.querySelector<HTMLElement>(".layout-tab-bar")?.classList.remove("fn__none");
+        root.querySelector<HTMLElement>(`.${PANEL_CLASS}__search-empty`)?.classList.add("fn__none");
+        root.querySelectorAll<HTMLElement>("[data-ss-tab-panel]").forEach((pane) => {
+            pane.classList.remove("fn__none");
+            pane.querySelectorAll<HTMLElement>(".config-item").forEach((row) => row.classList.remove("fn__none"));
+            pane.querySelector<HTMLElement>("[data-ss-search-group]")?.classList.add("fn__none");
+            this.refreshLastRow(pane);
+            this.refreshChildMarks(this.rowsByFeature(pane));
+        });
+        this.clearHighlights(root);
+        if (this.currentTab) {
+            this.activateTab(this.currentTab);
+        }
+        this.restoreScroll(root);
+        log.info("search cleared");
+    }
+
+    /**
+     * 重新算出这一页里可见行的最后一行。
+     *
+     * 过滤后行会整块消失，渲染时打的 `config-item--last-visible` 就不一定还落在最后一个可见行上；
+     * 这一页的下分割线、层级引导线的收尾都靠它，所以每次显隐变化后重算一遍。
+     */
+    private refreshLastRow(pane: HTMLElement): void {
+        const rows = [...pane.querySelectorAll<HTMLElement>(".config-item")];
+        rows.forEach((row) => row.classList.remove(LAST_ROW_CLASS));
+        rows.filter((row) => !row.classList.contains("fn__none")).pop()?.classList.add(LAST_ROW_CLASS);
+    }
+
+    /**
+     * 重新算出每个功能里「最后一个子行」的收尾标记。
+     *
+     * 层级引导线在那个子行上画成 └。过滤只整块显隐功能，渲染时打的标记本来就还落在它的
+     * 最后一个子行上；这里仍按同一套规则重算一遍，搜索与恢复走的是同一条路径，
+     * 将来若出现「单独藏起某一行」的用法也不会漏。
+     */
+    private refreshChildMarks(features: Map<string, HTMLElement[]>): void {
+        features.forEach((rows) => {
+            rows.forEach((row) => row.classList.remove(LAST_CHILD_CLASS));
+            rows
+                .filter((row) => row.classList.contains(CHILD_CLASS) && !row.classList.contains("fn__none"))
+                .pop()?.classList.add(LAST_CHILD_CLASS);
+        });
+    }
+
+    /** 按功能 id 把一页里的行分组：显隐、收尾标记与高亮都按「一个功能」为单位处理。 */
+    private rowsByFeature(pane: HTMLElement): Map<string, HTMLElement[]> {
+        const features = new Map<string, HTMLElement[]>();
+        pane.querySelectorAll<HTMLElement>(".config-item").forEach((row) => {
+            const id = row.dataset.ssFeature;
+            if (!id) {
+                return;
+            }
+            const rows = features.get(id);
+            if (rows) {
+                rows.push(row);
+                return;
+            }
+            features.set(id, [row]);
+        });
+        return features;
+    }
+
+    /** 给一页里可见的行与分组标题上高亮；只有当前界面真的看得见的文字才高亮。 */
+    private highlightPane(pane: HTMLElement, keywords: string[]): void {
+        pane.querySelectorAll<HTMLElement>(".config-item").forEach((row) => {
+            if (row.classList.contains("fn__none")) {
+                return;
+            }
+            row.querySelectorAll<HTMLElement>(`.config-item__main, .${PANEL_CLASS}__note-body, .b3-button`)
+                .forEach((target) => this.highlightText(target, keywords));
+        });
+        const group = pane.querySelector<HTMLElement>("[data-ss-search-group]");
+        if (group && !group.classList.contains("fn__none")) {
+            this.highlightText(group, keywords);
+        }
+    }
+
+    /**
+     * 把一段可见文案切成「命中 / 未命中」的片段写回 DOM。
+     *
+     * 只新建文本节点与 `<mark>`（`textContent` 赋值），**不拼 HTML 字符串**：
+     * 关键词来自用户输入，走 innerHTML 就是一次注入。`<select>` 里的文本节点不动 ——
+     * 下拉选项标签参与匹配，但那里塞不进标记。
+     */
+    private highlightText(element: HTMLElement, keywords: string[]): void {
+        const walker = element.ownerDocument.createTreeWalker(element, SHOW_TEXT);
+        const nodes: Text[] = [];
+        while (walker.nextNode()) {
+            const node = walker.currentNode as Text;
+            if (!node.parentElement?.closest("select, textarea")) {
+                nodes.push(node);
+            }
+        }
+        nodes.forEach((node) => {
+            const segments = highlightSegments(node.data, keywords);
+            if (!segments.some((segment) => segment.hit)) {
+                return;
+            }
+            const fragment = element.ownerDocument.createDocumentFragment();
+            segments.forEach((segment) => {
+                if (!segment.hit) {
+                    fragment.append(element.ownerDocument.createTextNode(segment.text));
+                    return;
+                }
+                const mark = element.ownerDocument.createElement("mark");
+                mark.className = HIT_CLASS;
+                mark.textContent = segment.text;
+                fragment.append(mark);
+            });
+            node.replaceWith(fragment);
+        });
+    }
+
+    /** 拆掉所有高亮，把文本节点合回去（下一次过滤重新算，切回普通视图时也不留痕迹）。 */
+    private clearHighlights(root: HTMLElement): void {
+        root.querySelectorAll(`mark.${HIT_CLASS}`).forEach((mark) => {
+            mark.replaceWith(document.createTextNode(mark.textContent ?? ""));
+        });
+        root.querySelectorAll<HTMLElement>(".config-item, [data-ss-search-group]").forEach((element) => {
+            element.normalize();
+        });
+    }
+
+    /**
+     * 生成只读索引：面板当前展示的每个分类、功能、字段各一个匹配域。
+     *
+     * 索引内容只有面板上能看到的东西：分类名；功能的 id / 名称 / 说明；设置项的 key / 标题 / 说明；
+     * 输入框 placeholder；下拉选项标签；说明块的文字、值与标签；按钮的标题、说明与当前文字。
+     * **不收**用户填写的值、开关状态、当前选中值，也不读任何配置文件。
+     *
+     * 静态 i18n 文案把两份语言文件里的同一条都算进同一个匹配域（中英文可混着搜），
+     * 运行时才知道的文案（动态下拉候选集、函数型按钮文字）只收此刻解析出的可见内容。
+     *
+     * 每次过滤现算：查询一变就要用最新索引，改过设置之后再输入才能命中新文案。
+     */
+    private buildSearchIndex(): SearchIndex {
+        const categories: Record<string, SearchField> = {};
+        const features: SearchRecord[] = [];
+        CATEGORY_ORDER.forEach((category) => {
+            if (this.visibleFeatures(category).length === 0) {
+                return;
+            }
+            categories[category] = this.staticField(categoryLabelKey(category));
+        });
+        this.visibleFeaturesAll().forEach((feature) => {
+            const fields: SearchField[] = [fieldOf(feature.id), this.staticField(feature.name)];
+            if (feature.description) {
+                fields.push(this.staticField(feature.description));
+            }
+            feature.settings.forEach((field) => {
+                // 内部 key 始终可搜，与它有没有文案无关
+                fields.push(fieldOf(field.key));
+                if (field.kind === "note") {
+                    // 说明块：可见文字（两种语言）+ 占位符的值与链接标签，算同一个字段
+                    fields.push(fieldOf(
+                        ...this.localeTexts(field.text),
+                        ...Object.values(field.values ?? {}),
+                        ...Object.values(field.labels ?? {}),
+                    ));
+                    return;
+                }
+                fields.push(this.staticField(field.title));
+                if (field.description) {
+                    fields.push(this.staticField(field.description));
+                }
+                if (field.kind === "text" && field.placeholder) {
+                    fields.push(this.staticField(field.placeholder));
+                }
+                if (field.kind === "select") {
+                    if (field.optionsProvider) {
+                        // 候选集只有运行时才知道（笔记本、插件列表），只收此刻解析出的标签
+                        fields.push(fieldOf(...this.selectOptionsOf(field).map((option) => option.label)));
+                    } else {
+                        (field.options ?? []).forEach((option) => fields.push(this.staticField(option.label)));
+                    }
+                }
+                if (field.kind === "button") {
+                    // 字符串型按钮文字是 i18n key（两种语言都收）；函数型跟着运行期状态变，
+                    // 只收此刻算出来的那一份
+                    fields.push(
+                        typeof field.label === "function" ?
+                            fieldOf(this.actionLabel(field.label, feature.id)) :
+                            this.staticField(field.label),
+                    );
+                }
+            });
+            features.push({category: feature.category, id: feature.id, fields});
+        });
+        return {categories, features};
+    }
+
+    /** 一条静态 i18n 文案的匹配域：当前语言那一份，加上两份语言文件里的同一条。 */
+    private staticField(key: string): SearchField {
+        return fieldOf(...this.localeTexts(key));
+    }
+
+    /**
+     * 一个 i18n key 的全部语言版本。
+     *
+     * 当前语言取宿主给的 `plugin.i18n`（也就是面板上真正显示的那份），另外两份直接读插件自带的
+     * 语言文件；查不到的 key 一律丢掉，不要让「找不到文案时回退成 key 本身」污染索引。
+     */
+    private localeTexts(key: string): string[] {
+        const current = this.options.plugin.i18n?.[key];
+        const texts = [current, ...LOCALE_TEXTS.map((locale) => locale[key])];
+        return texts.filter((text): text is string => typeof text === "string" && text.trim() !== "");
+    }
+
+    /** 面板根元素（带布局类的那个 div）。 */
+    private panelElement(root: HTMLElement): HTMLElement | null {
+        return root.querySelector<HTMLElement>(`.${PANEL_CLASS}`);
+    }
+
+    /** 记下搜索前的滚动位置：桌面端每页自己滚，移动端滚的是宿主的内容区，两处都要记。 */
+    private captureScroll(root: HTMLElement): void {
+        const panes = new Map<string, number>();
+        root.querySelectorAll<HTMLElement>("[data-ss-tab-panel]").forEach((pane) => {
+            panes.set(pane.dataset.ssTabPanel as string, pane.scrollTop);
+        });
+        this.searchSnapshot = {
+            content: root.querySelector<HTMLElement>(".b3-dialog__content")?.scrollTop ?? 0,
+            views: root.querySelector<HTMLElement>(`.${PANEL_CLASS}__panes`)?.scrollTop ?? 0,
+            panes,
+        };
+    }
+
+    /**
+     * 把滚动位置还给搜索前的视图。
+     *
+     * 刚显示回来的容器偶尔还量不到滚动高度（赋值被吞掉），所以下一帧再补一次：
+     * 已经生效的内核上这一次是空操作，卡片关闭时由 `disposeSearch()` 收掉这一帧。
+     */
+    private restoreScroll(root: HTMLElement): void {
+        const snapshot = this.searchSnapshot;
+        if (!snapshot) {
+            return;
+        }
+        this.searchSnapshot = undefined;
+        const apply = (): void => {
+            const content = root.querySelector<HTMLElement>(".b3-dialog__content");
+            const views = root.querySelector<HTMLElement>(`.${PANEL_CLASS}__panes`);
+            if (content) {
+                content.scrollTop = snapshot.content;
+            }
+            if (views) {
+                views.scrollTop = snapshot.views;
+            }
+            root.querySelectorAll<HTMLElement>("[data-ss-tab-panel]").forEach((pane) => {
+                pane.scrollTop = snapshot.panes.get(pane.dataset.ssTabPanel as string) ?? 0;
+            });
+        };
+        apply();
+        if (typeof requestAnimationFrame !== "function") {
+            return;
+        }
+        if (this.scrollFrame !== undefined) {
+            window.cancelAnimationFrame(this.scrollFrame);
+        }
+        this.scrollFrame = requestAnimationFrame(() => {
+            this.scrollFrame = undefined;
+            if (root.isConnected) {
+                apply();
+            }
+        });
+    }
+
+    /** 收掉搜索留下的东西：快捷键监听、补帧与状态；幂等，面板关闭与重新打开都会走这里。 */
+    private disposeSearch(): void {
+        if (this.searchKeys) {
+            document.removeEventListener("keydown", this.searchKeys, true);
+            this.searchKeys = undefined;
+        }
+        if (this.scrollFrame !== undefined) {
+            window.cancelAnimationFrame(this.scrollFrame);
+            this.scrollFrame = undefined;
+        }
+        this.searchActive = false;
+        this.searchText = "";
+        this.searchSnapshot = undefined;
     }
 }

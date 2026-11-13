@@ -93,6 +93,10 @@ plugin adds no top bar button, no status bar item and no dock item.
   closing it loses nothing.
 * The panel remembers the tab that was open when it closed and restores it next time, scrolling the tab bar to
   that tab; if that tab is no longer available, it falls back to the first tab.
+* The panel has a search box at the top of the settings area (desktop) or below the panel title (mobile). It filters
+  categories, features and setting items at once, shows every matched feature with all of its settings, and
+  highlights the matched text; `Ctrl/Cmd + F` or `/` focuses it and `Esc` clears it without closing the panel.
+  The query is never saved, and searching neither mounts features nor writes any configuration.
 * No per-item reset: to restore one item, export the configuration, edit it and import it again, or clear it all.
 * Both reconnect features reload the whole frontend; note content lives in the kernel, so a reload loses nothing.
 * Detailed logging is off by default: the console shows a single load hint until you turn it on under
