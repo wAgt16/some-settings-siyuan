@@ -72,6 +72,10 @@ from "siyuan"` 去注册 UI；需要新的平台能力时先加进 `FeatureHost`
 * **插件本体不在顶栏 / 状态栏 / 停靠栏注册任何入口**；设置面板的唯一入口是覆盖 `Plugin.openSetting()`。
 * 所以**只有单个功能**才允许注册自己的按钮 / 命令 / 停靠栏，且必须可撤销。
 * 所有注册都要有配对的清理，卸载逻辑必须幂等。
+* 日志一律走 `core/log.ts`：功能里用 `host.log` 的 `info` / `warn` / `error`，动作行用
+  `logInfo` / `logWarn` / `logError`（作用域写功能 id）。头部自动带
+  `[some-settings-siyuan__<功能 id>]`，详细日志默认关闭，开启入口是「插件自身」页签里的
+  「详细日志输出」。**不要直接 `console.*`**（`mobile-console-log` 抓取 `console` 的包装除外）。
 
 ---
 

@@ -59,13 +59,13 @@ export const mountDailyNoteDirect = (host: FeatureHost): FeatureInstance => {
             return;
         }
         if (!notebooksOf().some((notebook) => notebook.id === notebookId && !notebook.closed)) {
-            host.log(`configured notebook ${notebookId} is unavailable; falling back to SiYuan's own picker`);
+            host.log.warn(`configured notebook ${notebookId} is unavailable; falling back to SiYuan's own picker`);
             return;
         }
         const select = dialog.querySelector<HTMLSelectElement>("select.b3-select");
         const confirm = dialog.querySelector<HTMLButtonElement>(".b3-dialog__action .b3-button--text");
         if (!select || !confirm) {
-            host.log("no select or confirm button in the daily note dialog; skipping");
+            host.log.warn("no select or confirm button in the daily note dialog; skipping");
             return;
         }
         select.value = notebookId;

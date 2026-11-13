@@ -18,6 +18,10 @@ import {copyText} from "../../core/clipboard";
 import {reportError} from "../../core/error";
 import {isMobile} from "../../core/frontend";
 import {preheatDialogLayer} from "../../core/layer";
+import {
+    logInfo,
+    logWarn,
+} from "../../core/log";
 import type {FeatureActionContext} from "../../core/types";
 import {escapeHtml} from "../../core/ui";
 import {parseImport} from "./parse";
@@ -103,11 +107,13 @@ const openDialog = (context: FeatureActionContext, spec: DialogSpec): void => {
 };
 
 export const exportConfigs = async (context: FeatureActionContext): Promise<void> => {
+    const features = await context.exportConfigs();
+    logInfo("config-transfer", `exporting ${Object.keys(features).length} configuration file(s)`);
     const json = JSON.stringify(
         {
             plugin: MARK,
             version: FORMAT_VERSION,
-            features: await context.exportConfigs(),
+            features,
         },
         null,
         2,
@@ -137,6 +143,7 @@ export const importConfigs = (context: FeatureActionContext): void => {
         run: async (text) => {
             const parsed = parseImport(text);
             if (parsed.kind === "error") {
+                logWarn("config-transfer", `the imported document is not usable (${parsed.reason})`);
                 // 两个分支各写一次字面量 key：写成三元表达式的话，校验脚本会把分支里的
                 // 短片段也当成一个 key 去核对，两边都会被判成"缺文案"
                 if (parsed.reason === "json") {
@@ -148,6 +155,10 @@ export const importConfigs = (context: FeatureActionContext): void => {
             }
             try {
                 const result = await context.importConfigs(parsed.features);
+                logInfo(
+                    "config-transfer",
+                    `imported ${result.applied.length} configuration file(s), skipped ${result.skipped.length}`,
+                );
                 showMessage(
                     context.i18n("configTransfer.imported")
                         .replace("{count}", String(result.applied.length))

@@ -15,7 +15,10 @@ import {
 } from "vitest";
 import definition from "../../src/features/devtools-hotkey";
 import {mountDevtoolsHotkey} from "../../src/features/devtools-hotkey/hotkey";
-import {mountFeature} from "../helpers/feature-host";
+import {
+    mountFeature,
+    noopLogger,
+} from "../helpers/feature-host";
 
 interface WindowWithRequire {
     require?: (key: string) => unknown;
@@ -178,7 +181,7 @@ describe("桌面端 F12 开关开发者工具", () => {
         installElectron();
         const host = {
             config: {},
-            log: () => undefined,
+            log: noopLogger,
         } as unknown as Parameters<typeof mountDevtoolsHotkey>[0];
 
         const instance = mountDevtoolsHotkey(host);

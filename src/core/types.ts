@@ -13,6 +13,7 @@ import type {
     ICommand,
     IPluginDockTab,
 } from "siyuan";
+import type {Logger} from "./log";
 
 /**
  * 设置项分类：按功能**作用到的思源原生功能**划分，一个分类就是设置面板里的一个页签。
@@ -253,7 +254,11 @@ export interface FeatureHost {
     readonly signal: AbortSignal;
     /** 解析 i18n key，缺失时回落到 key 本身。 */
     readonly i18n: (key: string) => string;
-    readonly log: (...args: unknown[]) => void;
+    /**
+     * 本功能的分级日志器，头部自动带 `[some-settings-siyuan__<功能 id>]`。
+     * 详细日志关着时什么都不输出；文案用英文，不参与 i18n。
+     */
+    readonly log: Logger;
     /** 落盘并通知功能自身，patch 会与当前配置合并。 */
     setConfig(patch: FeatureConfig): Promise<void>;
     /** 订阅本功能配置变化（设置面板落盘或动作行改动后触发），随插件卸载自动退订。 */

@@ -315,9 +315,11 @@ export const mountConsoleLog = (host: FeatureHost): FeatureInstance => {
         }
     });
     install();
+    host.log.info(`console capture installed (capacity ${capacity})`);
 
     return {
         destroy: () => {
+            host.log.info("console capture stopped");
             if (openDialog) {
                 openDialog.destroy();
                 openDialog = undefined;

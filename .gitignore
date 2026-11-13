@@ -23,3 +23,6 @@ dev-refs
 
 # 测试覆盖率报告
 coverage
+
+# 会话内的任务清单（本地 notes，不提交）
+*_TODO.md

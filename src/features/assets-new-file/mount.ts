@@ -245,6 +245,7 @@ const openDialog = (host: FeatureHost, protyle: Protyle): void => {
     const submit = async (): Promise<void> => {
         const value = input?.value.trim() ?? "";
         if (!value || /[\\/]/.test(value)) {
+            host.log.warn(`rejected the file name ${JSON.stringify(value)}`);
             host.showMessage(t("assetsNewFile.invalid"));
             input?.focus();
             return;
@@ -258,6 +259,7 @@ const openDialog = (host: FeatureHost, protyle: Protyle): void => {
         }
         try {
             const path = await createEmptyAsset(value, rootID);
+            host.log.info(`created ${path}`);
             if (!closed) {
                 try {
                     insertLink(protyle, range, path, value);

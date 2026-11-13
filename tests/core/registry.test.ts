@@ -13,6 +13,7 @@ import {
     expect,
     it,
 } from "vitest";
+import {LOG_FEATURE_ID} from "../../src/core/log";
 import {
     activeFeatures,
     ALL_FEATURE_IDS,
@@ -30,6 +31,12 @@ const readI18n = (file: string): Record<string, string> =>
     JSON.parse(fs.readFileSync(path.join(ROOT, "src", "i18n", file), "utf8")) as Record<string, string>;
 
 describe("清单本身", () => {
+    it("「日志输出」排在第一位：装载器靠它先把详细日志开关打开", () => {
+        // 装载器按数组顺序注册 / 挂载，排在后面的话它前面那些功能的装载日志会被开关吞掉
+        expect(FEATURES[0].id).toBe(LOG_FEATURE_ID);
+        expect(FEATURES[0].enabled).toBe(true);
+    });
+
     it("id 唯一", () => {
         const ids = FEATURES.map((feature) => feature.id);
         expect(new Set(ids).size).toBe(ids.length);

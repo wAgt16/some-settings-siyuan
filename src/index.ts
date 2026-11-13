@@ -17,10 +17,14 @@ import {FeatureManager} from "./core/bootstrap";
 import {storageNameOf} from "./core/config";
 import {
     guardAsync,
-    logInfo,
-    logWarn,
     reportError,
 } from "./core/error";
+import {currentFrontend} from "./core/frontend";
+import {
+    createLogger,
+    isDetailedLogging,
+    logLoaded,
+} from "./core/log";
 import {ALL_FEATURE_IDS} from "./core/registry";
 import {
     listStoredFiles,
@@ -29,6 +33,9 @@ import {
 } from "./core/storage";
 // 集市要求包根目录必须有 index.css；各功能自己的样式走 host.addStyle() 运行时注入
 import "./index.scss";
+import manifest from "../plugin.json";
+
+const log = createLogger("core");
 
 /** 插件在文档里内联注入的图标，24x24，viewBox 与思源内置图标一致。 */
 const PLUGIN_ICONS = `<symbol id="iconSSSomeSettings" viewBox="0 0 32 32">
@@ -40,21 +47,31 @@ export default class SomeSettingsPlugin extends Plugin {
     private manager?: FeatureManager;
 
     async onload(): Promise<void> {
+        log.info("onload started", {
+            version: manifest.version,
+            frontend: currentFrontend(),
+            kernelVersion: window.siyuan?.config?.system?.kernelVersion ?? "unknown",
+        });
         this.addIcons(PLUGIN_ICONS);
         const manager = new FeatureManager(this);
         this.manager = manager;
         await manager.load();
-        logInfo(`${this.i18n.helloPlugin}`);
+        if (isDetailedLogging()) {
+            log.info("plugin loaded");
+        } else {
+            // 详细日志关着时控制台里只留这一行：它来自 i18n，随宿主语言变化
+            logLoaded(`${this.i18n.helloPlugin ?? "some-settings-siyuan loaded"}`);
+        }
     }
 
     async onunload(): Promise<void> {
+        log.info("onunload started");
         try {
             this.manager?.dispose();
         } catch (error) {
             reportError("onunload", error, false);
         }
         this.manager = undefined;
-        logInfo(`${this.i18n.byePlugin}`);
     }
 
     /**
@@ -66,11 +83,15 @@ export default class SomeSettingsPlugin extends Plugin {
      * 并跟着同步走。列目录失败时退回注册表清单：卸载里宁可少删几个，也不能一个都不删。
      */
     async uninstall(): Promise<void> {
-        for (const storageName of await this.storageNamesToRemove()) {
+        const storageNames = await this.storageNamesToRemove();
+        log.info(`uninstall: removing ${storageNames.length} configuration file(s)`);
+        for (const storageName of storageNames) {
             await guardAsync(`uninstall.${storageName}`, async () => {
                 const status = await removeStoredFile(this, storageName);
                 if (!status.ok) {
-                    logWarn(`uninstall could not remove ${storageName}: ${status.detail}`);
+                    log.warn(`uninstall could not remove ${storageName}: ${status.detail}`);
+                } else {
+                    log.info(`uninstall removed ${storageName}`);
                 }
             }, false);
         }
@@ -79,7 +100,9 @@ export default class SomeSettingsPlugin extends Plugin {
         await guardAsync("uninstall.storage", async () => {
             const status = await removeStorageDir(this);
             if (!status.ok) {
-                logWarn(`uninstall could not remove the plugin storage directory: ${status.detail}`);
+                log.warn(`uninstall could not remove the plugin storage directory: ${status.detail}`);
+            } else {
+                log.info("uninstall removed the plugin storage directory");
             }
         }, false);
         showMessage(`[${this.name}] ${this.i18n.byePlugin}`, 4000);
@@ -90,7 +113,7 @@ export default class SomeSettingsPlugin extends Plugin {
         try {
             return await listStoredFiles(this);
         } catch (error) {
-            logWarn("uninstall could not list the plugin storage directory, falling back to the registry", error);
+            log.warn("uninstall could not list the plugin storage directory, falling back to the registry", error);
             return ALL_FEATURE_IDS.map(storageNameOf);
         }
     }

@@ -7,11 +7,14 @@
  * 只能事后塞进最后一个 `[data-key="dialog-confirm"]`。
  */
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from "vitest";
+import {setDetailedLogging} from "../../src/core/log";
 import {clearAllConfigs} from "../../src/features/clear-config/clear";
 import zhCN from "../../src/i18n/zh-CN.json";
 import {createActionContext} from "../helpers/feature-host";
@@ -24,6 +27,15 @@ import {mockState} from "../mocks/siyuan";
  * （`isDelete`，它决定按钮是红色删除样式、文案变成「删除」），所以包一层只记录不改行为。
  */
 const confirmArgs: unknown[][] = [];
+
+beforeEach(() => {
+    // 失败路径只通过 reportError 留下控制台记录
+    setDetailedLogging(true);
+});
+
+afterEach(() => {
+    setDetailedLogging(false);
+});
 
 vi.mock("siyuan", async (importOriginal) => {
     const actual = await importOriginal<Record<string, any>>();
@@ -132,7 +144,7 @@ describe("清除本插件配置", () => {
         clearAllConfigs(context);
         await flush();
 
-        expect(console.error).toHaveBeenCalledWith(expect.stringContaining("[clear-config.clear]"), failure);
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining("clear-config.clear"));
         expect(mockState.messages.map((message) => message.text)).not.toContain(zhCN["clearConfig.done"]);
         expect(mockState.messages.at(-1)!.text).toContain("permission denied");
         expect(mockState.messages.at(-1)!.type).toBe("error");

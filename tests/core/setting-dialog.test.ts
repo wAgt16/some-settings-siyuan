@@ -8,6 +8,7 @@
  */
 import type {Plugin} from "siyuan";
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -15,6 +16,7 @@ import {
     vi,
 } from "vitest";
 import {ConfigStore} from "../../src/core/config";
+import {setDetailedLogging} from "../../src/core/log";
 import {SettingsPanel} from "../../src/core/setting-dialog";
 import type {
     FeatureDefinition,
@@ -161,6 +163,11 @@ const fire = (element: HTMLElement, type: string): void => {
 beforeEach(() => {
     setViewport(1200);
     window.siyuan.config.system.kernelVersion = "3.8.7";
+    setDetailedLogging(true);
+});
+
+afterEach(() => {
+    setDetailedLogging(false);
 });
 
 describe("show：渲染", () => {

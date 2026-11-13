@@ -47,6 +47,7 @@ import {
 import {withoutMobileInputFocus} from "./frontend";
 import {preheatDialogLayer} from "./layer";
 import {openExternalLink} from "./link";
+import {createLogger} from "./log";
 import {
     readStoredFile,
     writeStoredFile,
@@ -83,6 +84,8 @@ import {
     tabViewsHtml,
     textRowHtml,
 } from "./ui";
+
+const log = createLogger("core.panel");
 
 const CATEGORY_ORDER: FeatureCategory[] = FEATURE_CATEGORIES;
 /** 面板自身的状态与功能配置放在一起，导出、导入和清除时也会一并处理。 */
@@ -275,6 +278,10 @@ export class SettingsPanel {
         }
         ensurePanelCss();
         const mobile = isMobileFrontend();
+        log.info("opening the settings panel", {
+            frontend: mobile ? "mobile" : "desktop",
+            features: this.options.features.length,
+        });
 
         const generation = ++this.showGeneration;
         this.tabTouched = false;
@@ -355,6 +362,9 @@ export class SettingsPanel {
 
     /** 插件被禁用/重载/卸载时收掉面板；幂等。 */
     close(): void {
+        if (this.setting) {
+            log.info("closing the settings panel");
+        }
         // Setting.close() 自己区分「普通对话框」与「独立设置窗口」两种收法。
         this.setting?.close?.();
     }
@@ -583,6 +593,7 @@ export class SettingsPanel {
         panel.innerHTML = (mobile ? tabBarHtml(items) : tabSideHtml(items)) + tabViewsHtml(panes.join(""));
         this.bindControls(panel);
         this.bindTabs(panel);
+        log.info(`panel rendered with ${tabs.length} tab(s)`, tabs.map((tab) => tab.id));
     }
 
     /**
@@ -831,9 +842,10 @@ export class SettingsPanel {
                 const [featureId, key] = parseBindKey(encoded);
                 const action = this.actionOf(featureId, key);
                 if (!action) {
-                    console.warn(`[some-settings-siyuan] action "${encoded}" has no matching onClick, ignoring it`);
+                    log.warn(`action "${encoded}" has no matching onClick, ignoring it`);
                     return;
                 }
+                log.info(`action "${encoded}" triggered`);
                 return guardAsync(
                     `${featureId}.${key}`,
                     () => Promise.resolve(action.onClick(this.actionContext(featureId))),
@@ -962,7 +974,7 @@ export class SettingsPanel {
         const [featureId, key] = parseBindKey(encodedKey);
         const feature = this.options.features.find((item) => item.id === featureId);
         if (!feature) {
-            console.warn(`[some-settings-siyuan] control "${encodedKey}" has no matching feature, change discarded`);
+            log.warn(`control "${encodedKey}" has no matching feature, change discarded`);
             return undefined;
         }
         const field = feature.settings.find((item) => item.key === key);

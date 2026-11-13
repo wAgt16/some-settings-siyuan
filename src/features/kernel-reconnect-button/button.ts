@@ -49,7 +49,7 @@ export const reconnectNow = async (host: FeatureHost): Promise<boolean> => {
     if (!alive) {
         return false;
     }
-    host.log("kernel is back; reloading the frontend to rebuild the WebSocket");
+    host.log.info("kernel is back; reloading the frontend to rebuild the WebSocket");
     window.location.reload();
     return true;
 };

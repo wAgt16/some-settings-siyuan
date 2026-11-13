@@ -8,6 +8,7 @@ import {
 } from "vitest";
 import type {FeatureHost} from "../../src/core/types";
 import {mountNewDocFixedTarget} from "../../src/features/new-doc-fixed-target/target";
+import {noopLogger} from "../helpers/feature-host";
 
 const TARGET = "20260101123000-abcdefg";
 const CURRENT_DOC = "20260101090000-current";
@@ -69,7 +70,7 @@ const hostOf = (target = TARGET): FeatureHost => {
         config: {target},
         signal: controller.signal,
         i18n: (key: string) => key,
-        log: vi.fn(),
+        log: noopLogger,
         showMessage: vi.fn(),
     } as unknown as FeatureHost;
 };

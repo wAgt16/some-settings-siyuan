@@ -16,6 +16,7 @@ import {
     showMessage,
 } from "siyuan";
 import {reportError} from "../../core/error";
+import {logInfo} from "../../core/log";
 import type {FeatureActionContext} from "../../core/types";
 
 /** 重新载入前的等待：让「已清除」的提示先显示出来，用户能确认这一步做完了。 */
@@ -64,6 +65,7 @@ export const clearAllConfigs = (context: FeatureActionContext): void => {
         context.i18n("clearConfig.confirmText"),
         () => {
             context.clearAllConfigs().then(() => {
+                logInfo("clear-config", "cleared every configuration file, reloading the frontend");
                 showMessage(context.i18n("clearConfig.done"), 3000);
                 window.setTimeout(() => window.location.reload(), RELOAD_DELAY_MS);
             }).catch((error: unknown) => {

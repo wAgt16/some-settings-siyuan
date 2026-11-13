@@ -5,15 +5,26 @@
  * 所以每个用例都要同时看「执行次数」和「按钮最终状态」。
  */
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from "vitest";
 import {bindPendingClick} from "../../src/core/click";
+import {setDetailedLogging} from "../../src/core/log";
 import {mockState} from "../mocks/siyuan";
 
-const PREFIX = "[some-settings-siyuan]";
+const TAG = "[some-settings-siyuan__";
+
+beforeEach(() => {
+    setDetailedLogging(true);
+});
+
+afterEach(() => {
+    setDetailedLogging(false);
+});
 
 const makeButton = (): HTMLButtonElement => {
     const button = document.createElement("button");
@@ -83,7 +94,9 @@ describe("bindPendingClick", () => {
         });
         click(button);
         expect(button.disabled).toBe(false);
-        expect(vi.mocked(console.error)).toHaveBeenCalledWith(`${PREFIX} [scope]`, error);
+        expect(vi.mocked(console.error)).toHaveBeenCalledWith(
+            expect.stringContaining(`${TAG}scope] ERROR Error: ${error.message}`),
+        );
         expect(mockState.messages).toHaveLength(1);
     });
 
@@ -96,7 +109,9 @@ describe("bindPendingClick", () => {
         await Promise.resolve();
         await Promise.resolve();
         expect(button.disabled).toBe(false);
-        expect(vi.mocked(console.error)).toHaveBeenCalledWith(`${PREFIX} [scope]`, error);
+        expect(vi.mocked(console.error)).toHaveBeenCalledWith(
+            expect.stringContaining(`${TAG}scope] ERROR Error: ${error.message}`),
+        );
     });
 
     it("按钮一开始就是 disabled 时不执行", () => {

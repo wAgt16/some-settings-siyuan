@@ -126,6 +126,11 @@ export const mountInlineCodeCopy = (host: FeatureHost): FeatureInstance => {
     const run = (span: HTMLElement) => {
         const text = codeTextOf(span);
         void copyText(text).then((ok) => {
+            if (ok) {
+                host.log.info(`copied ${text.length} character(s) from inline code`);
+            } else {
+                host.log.warn(`could not copy ${text.length} character(s) from inline code`);
+            }
             host.showMessage(ok ? host.i18n("inlineCodeCopy.copied") : host.i18n("inlineCodeCopy.failed"));
         });
     };

@@ -21,6 +21,7 @@ import {
     it,
     vi,
 } from "vitest";
+import {setDetailedLogging} from "../../src/core/log";
 import definition from "../../src/features/code-block-lang-empty/index";
 import type {HostHarness} from "../helpers/feature-host";
 import {mountFeature} from "../helpers/feature-host";
@@ -54,9 +55,12 @@ const descriptorOf = (storage: Record<string, unknown>): PropertyDescriptor | un
 
 beforeEach(() => {
     mounted.length = 0;
+    // 顶不动属性时只留一条日志，详细日志要显式打开才看得到
+    setDetailedLogging(true);
 });
 
 afterEach(() => {
+    setDetailedLogging(false);
     mounted.splice(0).forEach((harness) => harness.dispose());
     vi.useRealTimers();
 });

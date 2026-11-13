@@ -21,6 +21,10 @@ import {
 import {reportError} from "../../core/error";
 import {preheatDialogLayer} from "../../core/layer";
 import {
+    logInfo,
+    logWarn,
+} from "../../core/log";
+import {
     escapeHtml,
     isMobileFrontend,
 } from "../../core/ui";
@@ -200,7 +204,7 @@ export const openIconManager = (options: IconManagerOptions): void => {
                 return [icon.fileName, await readIconDataUrl(icon)] as const;
             } catch (error) {
                 // 一张读不出来不该让整个窗口打不开，退回原图标即可
-                console.warn(`[some-settings-siyuan] cannot read custom icon ${icon.fileName}`, error);
+                logWarn("bazaar-custom-icon", `cannot read custom icon ${icon.fileName}`, error);
                 return undefined;
             }
         }));
@@ -347,6 +351,7 @@ export const openIconManager = (options: IconManagerOptions): void => {
                 enabledNow = true;
             }
             notifyChanged();
+            logInfo("bazaar-custom-icon", `saved the icon for ${owner}/${name}`);
             showMessage(t(enabledNow ? "bazaarIcon.savedAndEnabled" : "bazaarIcon.saved"), 3000);
         } catch (error) {
             reportError("bazaar-custom-icon.save", error);
@@ -362,6 +367,7 @@ export const openIconManager = (options: IconManagerOptions): void => {
             await reloadIcons();
             render();
             notifyChanged();
+            logInfo("bazaar-custom-icon", `restored the default icon for ${owner}/${name}`);
             showMessage(t("bazaarIcon.removed"), 2000);
         } catch (error) {
             reportError("bazaar-custom-icon.reset", error);

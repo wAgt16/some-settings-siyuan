@@ -151,20 +151,24 @@ describe("断连面板立即重连按钮", () => {
     describe("reconnectNow", () => {
         it("探到内核恢复就重载前端（重载是唯一能重建主 WebSocket 的干净路径）", async () => {
             answerProbe(0);
-            const host = {log: vi.fn()} as unknown as Parameters<typeof reconnectNow>[0];
+            const host = {log: {scope: "test", info: vi.fn(), warn: vi.fn(), error: vi.fn()}} as unknown as Parameters<
+                typeof reconnectNow
+            >[0];
 
             await expect(reconnectNow(host)).resolves.toBe(true);
             expect(reload).toHaveBeenCalledTimes(1);
-            expect(host.log).toHaveBeenCalledWith(expect.stringContaining("reloading the frontend"));
+            expect(host.log.info).toHaveBeenCalledWith(expect.stringContaining("reloading the frontend"));
         });
 
         it("内核还没回来就不重载，只返回 false 让人去提示用户", async () => {
             answerProbe(1);
-            const host = {log: vi.fn()} as unknown as Parameters<typeof reconnectNow>[0];
+            const host = {log: {scope: "test", info: vi.fn(), warn: vi.fn(), error: vi.fn()}} as unknown as Parameters<
+                typeof reconnectNow
+            >[0];
 
             await expect(reconnectNow(host)).resolves.toBe(false);
             expect(reload).not.toHaveBeenCalled();
-            expect(host.log).not.toHaveBeenCalled();
+            expect(host.log.info).not.toHaveBeenCalled();
         });
     });
 

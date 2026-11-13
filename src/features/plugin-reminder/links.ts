@@ -9,6 +9,7 @@
  */
 import manifest from "../../../plugin.json";
 import {openExternalLink} from "../../core/link";
+import {logInfo} from "../../core/log";
 
 /**
  * 捐赠按钮前面那颗图标：与思源「关于」页捐赠按钮用的是同一张图，
@@ -46,12 +47,15 @@ const DONATE_URL: string = manifest.funding?.custom?.[0] ?? "";
 export const hasDonateUrl = (): boolean => DONATE_URL !== "";
 
 export const openRepository = (): void => {
+    logInfo("plugin-reminder", `opening the repository ${REPO_URL}`);
     openExternalLink(REPO_URL);
 };
 
 export const openDonate = (): void => {
     if (!DONATE_URL) {
+        logInfo("plugin-reminder", "no donation link is declared in the manifest");
         return;
     }
+    logInfo("plugin-reminder", `opening the donation page ${DONATE_URL}`);
     openExternalLink(DONATE_URL);
 };

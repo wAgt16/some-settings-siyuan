@@ -177,9 +177,11 @@ const appendRows = (host: FeatureHost, source: AssetSource): void => {
         },
         undefined,
         () => {
+            host.log.warn(`could not read the size of ${src}; showing the basic asset rows`);
             settle();
         },
-    ).catch(() => {
+    ).catch((error: unknown) => {
+        host.log.warn(`could not read the size of ${src}; showing the basic asset rows`, error);
         settle();
     });
 };

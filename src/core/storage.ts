@@ -12,8 +12,9 @@
  */
 import {fetchSyncPost} from "siyuan";
 import type {Plugin} from "siyuan";
+import {createLogger} from "./log";
 
-const PREFIX = "[some-settings-siyuan]";
+const log = createLogger("core.storage");
 
 /** 插件在思源工作空间里的私有目录。 */
 const storageDirOf = (plugin: Plugin): string => `/data/storage/petal/${plugin.name}`;
@@ -64,9 +65,11 @@ export const listStoredFiles = async (plugin: Plugin): Promise<string[]> => {
         throw new Error(`cannot list ${dir}: code ${String(response.code)}${response.msg ? `: ${response.msg}` : ""}`);
     }
     const entries = Array.isArray(response.data) ? response.data as {name?: unknown; isDir?: unknown;}[] : [];
-    return entries
+    const names = entries
         .filter((entry) => typeof entry.name === "string" && entry.isDir !== true)
         .map((entry) => entry.name as string);
+    log.info(`${dir} holds ${names.length} file(s)`, names);
+    return names;
 };
 
 /** 读文件内容；文件不存在或读不到时返回 null（宿主对不存在的文件兑现空串）。 */
@@ -75,7 +78,7 @@ export const readStoredFile = async (plugin: Plugin, storageName: string): Promi
         const stored = await plugin.loadData(storageName);
         return stored === "" ? null : stored;
     } catch (error) {
-        console.warn(`${PREFIX} failed to read ${storageName}`, error);
+        log.warn(`cannot read ${storageName}`, error);
         return null;
     }
 };
@@ -89,7 +92,7 @@ export const writeStoredFile = async (
     try {
         return statusOf(await plugin.saveData(storageName, value));
     } catch (error) {
-        console.warn(`${PREFIX} failed to write ${storageName}`, error);
+        log.warn(`cannot write ${storageName}`, error);
         return {ok: false, detail: String(error)};
     }
 };
@@ -100,7 +103,7 @@ export const removeStoredFile = async (plugin: Plugin, storageName: string): Pro
         const status = statusOf(await plugin.removeData(storageName));
         return status.code === 404 ? {...status, ok: true} : status;
     } catch (error) {
-        console.warn(`${PREFIX} failed to remove ${storageName}`, error);
+        log.warn(`cannot remove ${storageName}`, error);
         return {ok: false, detail: String(error)};
     }
 };
@@ -118,7 +121,7 @@ export const removeStorageDir = async (plugin: Plugin): Promise<StorageStatus> =
         );
         return status.code === 404 ? {...status, ok: true} : status;
     } catch (error) {
-        console.warn(`${PREFIX} failed to remove ${storageDirOf(plugin)}`, error);
+        log.warn(`cannot remove ${storageDirOf(plugin)}`, error);
         return {ok: false, detail: String(error)};
     }
 };

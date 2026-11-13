@@ -10,12 +10,14 @@
  * 不是「当前有哪些功能」（那是 registry / setting-dialog 自己的测试）。
  */
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
     it,
     vi,
 } from "vitest";
+import {setDetailedLogging} from "../../src/core/log";
 import type {
     FeatureDefinition,
     FeatureHost,
@@ -30,6 +32,10 @@ const hoisted = vi.hoisted(() => ({
 
 vi.mock("../../src/core/registry", () => ({
     activeFeatures: () => hoisted.active,
+    // 装载日志会遍历整张注册表来解释「谁被跳过」，测试里注册表就是这份清单
+    get FEATURES() {
+        return hoisted.active;
+    },
     featureById: (id: string) => hoisted.active.find((feature) => feature.id === id),
 }));
 
@@ -55,7 +61,7 @@ vi.mock("../../src/core/setting-dialog", () => ({
 // 依赖 mock 之后才能导入，所以放在 vi.mock 之后
 const {FeatureManager} = await import("../../src/core/bootstrap");
 
-const PREFIX = "[some-settings-siyuan]";
+const TAG = "[some-settings-siyuan__";
 
 /** 宿主播件：记录全部注册 / 撤销调用，供断言「成对清理」。 */
 class FakePlugin {
@@ -162,6 +168,12 @@ const start = async (definitions: FeatureDefinition[], stored: Record<string, un
 beforeEach(() => {
     hoisted.active = [];
     hoisted.panels = [];
+    // 详细日志默认关着，这份测试要观察控制台上的记录，所以显式打开
+    setDetailedLogging(true);
+});
+
+afterEach(() => {
+    setDetailedLogging(false);
 });
 
 describe("load", () => {
@@ -268,7 +280,9 @@ describe("异常隔离", () => {
             },
         })], {alpha: {enabled: true}});
 
-        expect(vi.mocked(console.error)).toHaveBeenCalledWith(`${PREFIX} [alpha.mount]`, expect.any(Error));
+        expect(vi.mocked(console.error)).toHaveBeenCalledWith(
+            expect.stringContaining(`${TAG}alpha.mount] ERROR Error: mount failed`),
+        );
         expect(mockState.messages[0].text).toContain("mount failed");
         expect(plugin.removedTopBars).toEqual(["top"]);
         expect(document.head.querySelectorAll("style[data-some-settings-style]")).toHaveLength(0);
@@ -303,8 +317,7 @@ describe("异常隔离", () => {
 
         expect(manager.store.get("broken")).toEqual({enabled: false});
         expect(vi.mocked(console.warn)).toHaveBeenCalledWith(
-            `${PREFIX} failed to read feature-broken, using the default`,
-            expect.any(Error),
+            expect.stringContaining(`${TAG}core.config] WARN cannot read feature-broken`),
         );
         expect(ok).toHaveBeenCalledTimes(1);
     });
@@ -325,7 +338,9 @@ describe("异常隔离", () => {
 
         await manager.load();
 
-        expect(vi.mocked(console.error)).toHaveBeenCalledWith(`${PREFIX} [broken.config]`, expect.any(Error));
+        expect(vi.mocked(console.error)).toHaveBeenCalledWith(
+            expect.stringContaining(`${TAG}broken.config] ERROR Error: register failed`),
+        );
         expect(ok).toHaveBeenCalledTimes(1);
     });
 
@@ -349,6 +364,67 @@ describe("异常隔离", () => {
         expect(vi.mocked(console.error)).toHaveBeenCalled();
         // 样式清理照常执行
         expect(document.head.querySelectorAll("style[data-some-settings-style]")).toHaveLength(0);
+    });
+});
+
+describe("日志开关的时序", () => {
+    /** 一个行为与真实「日志输出」功能一致的替身：挂载开、卸载关。 */
+    const loggingFeature = (): FeatureDefinition =>
+        featureOf("log-output", {
+            mount: (host) => {
+                setDetailedLogging(true);
+                host.log.info("detailed logging enabled");
+                return {
+                    destroy: () => {
+                        host.log.info("detailed logging disabled");
+                        setDetailedLogging(false);
+                    },
+                };
+            },
+        });
+
+    it("先挂载「日志输出」，装载概况与后续功能的日志才会出现", async () => {
+        setDetailedLogging(false);
+        await start([
+            loggingFeature(),
+            featureOf("alpha", {mount: () => undefined}),
+        ], {"log-output": {enabled: true}, alpha: {enabled: true}});
+
+        expect(vi.mocked(console.log)).toHaveBeenCalledWith(
+            expect.stringContaining(`${TAG}core.bootstrap] INFO loading 2 of 2 feature(s)`),
+        );
+        expect(vi.mocked(console.log)).toHaveBeenCalledWith(`${TAG}alpha] INFO mounted`);
+    });
+
+    it("没有「日志输出」时，整个装载过程不写控制台", async () => {
+        setDetailedLogging(false);
+        await start([featureOf("alpha", {mount: () => undefined})], {alpha: {enabled: true}});
+
+        expect(vi.mocked(console.log)).not.toHaveBeenCalled();
+        expect(vi.mocked(console.warn)).not.toHaveBeenCalled();
+        expect(vi.mocked(console.error)).not.toHaveBeenCalled();
+    });
+
+    it("中途关掉再打开后卸载，「日志输出」仍然最后收掉，其他功能的日志不丢", async () => {
+        setDetailedLogging(false);
+        const {manager} = await start([
+            loggingFeature(),
+            featureOf("alpha", {mount: () => undefined}),
+        ], {"log-output": {enabled: true}, alpha: {enabled: true}});
+
+        // 关掉再打开会把「日志输出」在 mounted 里的位置挪到末尾，倒序卸载就不够了
+        await manager.store.patch("log-output", {enabled: false});
+        await manager.store.patch("log-output", {enabled: true});
+
+        // 只保留卸载期间产生的日志
+        vi.mocked(console.log).mockClear();
+        manager.dispose();
+
+        const disposed = vi.mocked(console.log).mock.calls.map((call) => String(call[0]));
+        const alphaIndex = disposed.findIndex((line) => line.includes(`${TAG}alpha] INFO unmounted (dispose)`));
+        const logIndex = disposed.findIndex((line) => line.includes(`${TAG}log-output] INFO unmounted (dispose)`));
+        expect(alphaIndex).toBeGreaterThanOrEqual(0);
+        expect(logIndex).toBeGreaterThan(alphaIndex);
     });
 });
 
@@ -556,10 +632,12 @@ describe("FeatureHost", () => {
         expect(mockState.messages).toEqual([{text: "完成", timeout: 4000, type: undefined}]);
     });
 
-    it("log 带功能 id 前缀", async () => {
+    it("log 带功能 id 头部与级别", async () => {
         const {host} = await start([featureOf("alpha")], {alpha: {enabled: true}});
-        host("alpha").log("step", 1);
-        expect(vi.mocked(console.log)).toHaveBeenCalledWith(`${PREFIX}[alpha]`, "step", 1);
+        host("alpha").log.info("step", 1);
+        host("alpha").log.warn("careful");
+        expect(vi.mocked(console.log)).toHaveBeenCalledWith(`${TAG}alpha] INFO step 1`);
+        expect(vi.mocked(console.warn)).toHaveBeenCalledWith(`${TAG}alpha] WARN careful`);
     });
 });
 

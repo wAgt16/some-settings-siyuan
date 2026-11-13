@@ -7,6 +7,8 @@
  */
 import type {Plugin} from "siyuan";
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -21,6 +23,7 @@ import {
     sameConfig,
     storageNameOf,
 } from "../../src/core/config";
+import {setDetailedLogging} from "../../src/core/log";
 import type {
     FeatureDefinition,
     SettingField,
@@ -28,6 +31,15 @@ import type {
 import {mockState} from "../mocks/siyuan";
 
 const PLUGIN_NAME = "some-settings-siyuan";
+
+beforeEach(() => {
+    // 这份测试要观察控制台上的告警，详细日志默认关着，所以显式打开
+    setDetailedLogging(true);
+});
+
+afterEach(() => {
+    setDetailedLogging(false);
+});
 
 /** 一个把「磁盘」放在 Map 里的宿主播件，行为与 plugin.loadData / saveData 一致。 */
 class FakeHost {
