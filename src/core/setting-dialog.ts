@@ -244,6 +244,8 @@ export class SettingsPanel {
     private tabWriteQueue: Promise<void> = Promise.resolve();
     /** 面板的这一次打开；异步读盘回来时，旧的打开过程不能覆盖新面板。 */
     private showGeneration = 0;
+    /** 页签栏还没量到宽度时，下一帧补滚的那一次。 */
+    private revealFrame?: number;
 
     constructor(options: SettingsPanelOptions) {
         this.options = options;
@@ -287,6 +289,8 @@ export class SettingsPanel {
         this.tabTouched = false;
         // 已落盘状态属于这一次打开，不能被上一次关闭的异步写盘顺带改掉。
         this.storedTab = undefined;
+        // 上一次打开留下的补滚帧指向旧的对话框，先收掉。
+        this.cancelRevealFrame();
         const setting = new Setting({
             destroyCallback: () => {
                 // 关面板时把还在静默期里的那一次补上：用户改完直接关窗，改动也不会丢。
@@ -297,6 +301,7 @@ export class SettingsPanel {
                 this.pending = new Map();
                 this.clearFlushTimer();
                 this.stopViewportWatch();
+                this.cancelRevealFrame();
             },
         }) as SettingWithDialog;
         this.setting = setting;
@@ -495,6 +500,14 @@ export class SettingsPanel {
         this.viewportTimer = undefined;
     }
 
+    private cancelRevealFrame(): void {
+        if (this.revealFrame === undefined) {
+            return;
+        }
+        window.cancelAnimationFrame(this.revealFrame);
+        this.revealFrame = undefined;
+    }
+
     // ------------------------------------------------------------ 渲染
 
     /**
@@ -640,6 +653,79 @@ export class SettingsPanel {
             pane.classList.toggle("fn__none", pane.dataset.ssTabPanel !== id);
         });
         this.currentTab = id as FeatureCategory;
+        this.revealTab(id);
+    }
+
+    /**
+     * 把页签滚到看得见的位置：恢复上次的页签时，选中的那一项往往还在屏幕外。
+     *
+     * 移动端的页签栏是一整条横向滚动区（七个分类一屏放不下），一打开总是停在最左边；
+     * 桌面端左侧列表也会纵向滚。类名换到第 4、5 个页签上，用户看到的却还是开头那几个，
+     * 于是「记住了页签」看起来等于没记住 —— 所以切页之后要把它滚出来。
+     *
+     * 量不到尺寸时（抽屉刚挂上、页签栏宽度还是 0）下一帧再补一次，只补这一次。
+     */
+    private revealTab(id: string): void {
+        // 上一帧要补滚的是别的页签：撤掉，按这一次的页签重新判断。
+        this.cancelRevealFrame();
+        if (this.putTabInView(id) || typeof requestAnimationFrame !== "function") {
+            return;
+        }
+        this.revealFrame = requestAnimationFrame(() => {
+            this.revealFrame = undefined;
+            this.putTabInView(id);
+        });
+    }
+
+    /**
+     * 让页签在它自己的滚动容器里完整可见，位移取最小值：已经看得见就不动，
+     * 只露出一半就贴到最近的边。
+     *
+     * 不用 `scrollIntoView()`：它会连带滚动所有祖先（弹窗内容区、宿主抽屉、整个页面），
+     * 恢复一个页签就把整页带偏。这里只改页签栏自己的 `scrollLeft` / `scrollTop`。
+     *
+     * 返回 false 表示这次没量到尺寸（容器还没排版），调用方可以下一帧再试。
+     */
+    private putTabInView(id: string): boolean {
+        const root = this.dialog?.element;
+        const item = root?.querySelector<HTMLElement>(`[data-ss-tab="${id}"]`);
+        if (!root || !item) {
+            return true;
+        }
+        // 移动端页签条横向滚，桌面端左侧列表纵向滚，两种容器互斥。
+        const bar = item.closest<HTMLElement>(".layout-tab-bar");
+        const scroller = bar ?? item.closest<HTMLElement>(`.${PANEL_CLASS}__tabs`);
+        if (!scroller) {
+            return true;
+        }
+        const axis: "x" | "y" = bar ? "x" : "y";
+        const view = axis === "x" ? scroller.clientWidth : scroller.clientHeight;
+        const content = axis === "x" ? scroller.scrollWidth : scroller.scrollHeight;
+        if (view <= 0) {
+            return false;
+        }
+        if (content <= view) {
+            // 整条都放得下：没有可滚的余量，本来就不需要动。
+            return true;
+        }
+        const box = scroller.getBoundingClientRect();
+        const rect = item.getBoundingClientRect();
+        const start = axis === "x" ? rect.left - box.left : rect.top - box.top;
+        const size = axis === "x" ? rect.width : rect.height;
+        if (size <= 0) {
+            return false;
+        }
+        const delta = start < 0 ? start : Math.max(0, start + size - view);
+        if (delta === 0) {
+            return true;
+        }
+        if (axis === "x") {
+            scroller.scrollLeft += delta;
+        } else {
+            scroller.scrollTop += delta;
+        }
+        log.info("revealed the active tab", {tab: id, axis, delta});
+        return true;
     }
 
     /**

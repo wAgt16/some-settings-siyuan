@@ -160,6 +160,73 @@ const fire = (element: HTMLElement, type: string): void => {
     element.dispatchEvent(new Event(type, {bubbles: true}));
 };
 
+/** jsdom 不排版，矩形必须自己造。 */
+const rectOf = (left: number, top: number, width: number, height: number): DOMRect => ({
+    left,
+    top,
+    right: left + width,
+    bottom: top + height,
+    width,
+    height,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+});
+
+/**
+ * 给页签栏与其中的页签摆一份几何：jsdom 里 `clientWidth` / `scrollWidth` 恒为 0，
+ * 不先摆好，「页签要不要滚」这件事根本无从判断。
+ *
+ * `start` 是页签在滚动容器里的起始位置，`view` 是滚动容器看得见的那一段长度。
+ */
+const stubScrollBox = (
+    scroller: HTMLElement,
+    item: HTMLElement,
+    geometry: {view: number; content: number; start: number; size: number; vertical?: boolean;},
+): void => {
+    const vertical = Boolean(geometry.vertical);
+    Object.defineProperty(scroller, vertical ? "clientHeight" : "clientWidth", {
+        value: geometry.view,
+        configurable: true,
+    });
+    Object.defineProperty(scroller, vertical ? "scrollHeight" : "scrollWidth", {
+        value: geometry.content,
+        configurable: true,
+    });
+    Object.defineProperty(scroller, vertical ? "scrollTop" : "scrollLeft", {
+        value: 0,
+        writable: true,
+        configurable: true,
+    });
+    scroller.getBoundingClientRect = () => rectOf(0, 0, vertical ? 40 : geometry.view, vertical ? geometry.view : 40);
+    item.getBoundingClientRect = () =>
+        vertical ?
+            rectOf(0, geometry.start, 40, geometry.size) :
+            rectOf(geometry.start, 0, geometry.size, 40);
+};
+
+/** 让面板读「上次的页签」这一步卡住，好在恢复之前把几何摆好。返回放行函数。 */
+const gatePanelState = (host: FakeHost): () => void => {
+    const original = host.loadData.getMockImplementation() as (name: string) => Promise<unknown>;
+    let release: () => void = () => undefined;
+    const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    host.loadData.mockImplementation(async (name: string): Promise<unknown> => {
+        if (name === "feature-panel-state") {
+            await blocked;
+        }
+        return original(name);
+    });
+    return release;
+};
+
+/** 等一帧：页签栏量不到宽度时面板会在下一帧补滚一次。 */
+const nextFrame = (): Promise<void> =>
+    new Promise((resolve) => {
+        requestAnimationFrame(() => resolve());
+    });
+
 beforeEach(() => {
     setViewport(1200);
     window.siyuan.config.system.kernelVersion = "3.8.7";
@@ -573,6 +640,76 @@ describe("页签交互", () => {
         await Promise.resolve();
         await Promise.resolve();
         expect(first.qa("[data-ss-tab]")[0].getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("恢复记住的页签时把移动端页签栏滚到它", async () => {
+        mockState.frontend = "mobile";
+        const host = new FakeHost();
+        host.files.set("feature-panel-state", {tab: "appearance"});
+        const release = gatePanelState(host);
+        const {qa, q} = await open(twoTabs(), {}, host);
+        const bar = q<HTMLElement>(".layout-tab-bar") as HTMLElement;
+        // 页签栏一屏只放得下 300px，第二个页签在 520px 处：恢复之后必须滚过去。
+        stubScrollBox(bar, qa("[data-ss-tab]")[1], {view: 300, content: 900, start: 520, size: 130});
+
+        release();
+        await vi.waitFor(() => expect(qa("[data-ss-tab]")[1].getAttribute("aria-selected")).toBe("true"));
+
+        expect(bar.scrollLeft).toBe(350);
+    });
+
+    it("页签已经完整可见时不滚页签栏", async () => {
+        mockState.frontend = "mobile";
+        const {qa, q} = await open(twoTabs());
+        const bar = q<HTMLElement>(".layout-tab-bar") as HTMLElement;
+        stubScrollBox(bar, qa("[data-ss-tab]")[1], {view: 300, content: 900, start: 80, size: 130});
+
+        qa("[data-ss-tab]")[1].click();
+
+        expect(bar.scrollLeft).toBe(0);
+    });
+
+    it("页签栏整条放得下时不做任何滚动", async () => {
+        mockState.frontend = "mobile";
+        const {qa, q} = await open(twoTabs());
+        const bar = q<HTMLElement>(".layout-tab-bar") as HTMLElement;
+        stubScrollBox(bar, qa("[data-ss-tab]")[1], {view: 600, content: 600, start: 300, size: 130});
+
+        qa("[data-ss-tab]")[1].click();
+
+        expect(bar.scrollLeft).toBe(0);
+    });
+
+    it("页签栏还没量到宽度时下一帧补滚", async () => {
+        mockState.frontend = "mobile";
+        const {qa, q} = await open(twoTabs());
+        const bar = q<HTMLElement>(".layout-tab-bar") as HTMLElement;
+        const target = qa("[data-ss-tab]")[1];
+        // 抽屉刚挂上：宽度还是 0，这一帧量不出要不要滚。
+        stubScrollBox(bar, target, {view: 0, content: 900, start: 520, size: 130});
+        target.click();
+        expect(bar.scrollLeft).toBe(0);
+
+        stubScrollBox(bar, target, {view: 300, content: 900, start: 520, size: 130});
+        await nextFrame();
+
+        expect(bar.scrollLeft).toBe(350);
+    });
+
+    it("桌面端左侧页签列表同样把选中的页签滚出来", async () => {
+        const {qa, q} = await open(twoTabs());
+        const list = q<HTMLElement>(`.${PANEL_CLASS}__tabs`) as HTMLElement;
+        stubScrollBox(list, qa("[data-ss-tab]")[1], {
+            view: 100,
+            content: 260,
+            start: 150,
+            size: 48,
+            vertical: true,
+        });
+
+        qa("[data-ss-tab]")[1].click();
+
+        expect(list.scrollTop).toBe(98);
     });
 });
 
