@@ -89,28 +89,26 @@ plugin adds no top bar button, no status bar item and no dock item.
 
 ## Notes
 
-* Every change is written to that feature's own configuration file straight away: the panel has no Save button, and
-  closing it loses nothing.
-* The panel remembers the tab that was open when it closed and restores it next time, scrolling the tab bar to
-  that tab; if that tab is no longer available, it falls back to the first tab.
-* The panel has a search box at the top of the settings area (desktop) or below the panel title (mobile). It filters
-  categories, features and setting items at once, shows every matched feature with all of its settings, and
-  highlights the matched text; `Ctrl/Cmd + F` or `/` focuses it and `Esc` clears it without closing the panel.
-  The query is never saved, and searching neither mounts features nor writes any configuration.
-* No per-item reset: to restore one item, export the configuration, edit it and import it again, or clear it all.
+* Every change is written to that feature's own configuration file at once: there is no Save button and closing the
+  panel loses nothing. There is no per-item reset either, so restoring one item means exporting the configuration,
+  editing it and importing it again, or clearing everything.
+* The panel restores the tab that was open when it last closed, and falls back to the first tab if that one is gone.
+* The search box (top of the settings area on desktop, below the panel title on mobile) filters categories, features
+  and setting items at once, showing each matched feature with all of its settings and highlighting the match;
+  `Ctrl/Cmd + F` or `/` focuses it and `Esc` only clears it. The query is never saved, and searching neither mounts
+  features nor writes configuration.
+* Detailed logging is off by default and leaves a single load hint in the console; once enabled under
+  **This plugin**, every event is one INFO / WARN / ERROR line tagged with the feature id. The console log viewer
+  only collects from the moment its own switch is on, so logs from plugin startup are never recorded.
+* Import, export and clear cover every configuration file under `data/storage/petal/some-settings-siyuan`; custom
+  marketplace icons change this client only, sync with SiYuan and survive a configuration clear.
 * Both reconnect features reload the whole frontend; note content lives in the kernel, so a reload loses nothing.
-* Detailed logging is off by default: the console shows a single load hint until you turn it on under
-  **This plugin**, and then every event is logged as one INFO / WARN / ERROR line tagged with the feature id.
-* The console log viewer only collects from the moment its switch is on, so logs from plugin startup are never recorded.
-* On mobile the inline-code copy button follows the caret and copies the visible text only.
-* Jump-to-last-position only takes over whole-document bookmarks opened with a plain left click.
-* The recording window only replaces the UI: SiYuan's recorder has no pause, so it offers stop only.
-* Asset metadata sits directly in the context menu and only for workspace assets (`assets/…`).
-* Snippet highlighting needs SiYuan's own highlight.js and falls back to plain text without it.
-* Import, export and clear cover every configuration file under `data/storage/petal/some-settings-siyuan`.
-* Custom marketplace icons change this client only, sync with SiYuan, and survive a configuration clear.
-* _Details for the agent's tool calls_ reads only responses the panel already received, so unmatched calls show none.
-* _Send the agent message with Enter_ shadows the default Agent Send shortcut.
+* Per-feature limits: the mobile inline-code copy button follows the caret and copies visible text only; the bookmark
+  jump only takes over whole-document bookmarks opened with a plain left click; the recording window only replaces
+  the UI (SiYuan's recorder has no pause, so it offers stop only); asset metadata only covers workspace assets
+  (`assets/…`); snippet highlighting needs SiYuan's own highlight.js and falls back to plain text.
+* _Details for the agent's tool calls_ reads only responses the panel already received, so unmatched calls show no
+  parameters; _Send the agent message with Enter_ shadows the default Agent Send shortcut.
 
 ## Bazaar Stats Graph
 
