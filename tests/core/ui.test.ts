@@ -496,6 +496,14 @@ describe("PANEL_CSS", () => {
         expect(PANEL_CSS).not.toMatch(/font-weight:\s*(bold|[5-9]00)/);
     });
 
+    it("搜索时左侧栏靠宽度过渡收起，不是 display:none", () => {
+        // display:none 没有过渡，一开一收会硬跳；这里锁住「过渡 + visibility 延时」这套写法
+        expect(PANEL_CSS).toContain(`.${PANEL_CLASS}--search > .${PANEL_CLASS}__side {`);
+        expect(PANEL_CSS).toContain("transition: width .2s ease, padding .2s ease");
+        expect(PANEL_CSS).toContain("visibility 0s linear .2s");
+        expect(PANEL_CSS).toContain("@media (prefers-reduced-motion: reduce)");
+    });
+
     it("作用域限定在面板类名下，含移动端与窄屏两套规则", () => {
         expect(PANEL_CSS).toContain(`.${PANEL_CLASS} {`);
         expect(PANEL_CSS).toContain(`.${PANEL_CLASS}--mobile`);

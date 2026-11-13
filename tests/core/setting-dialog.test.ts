@@ -1453,8 +1453,11 @@ describe("搜索", () => {
             const input = searchBox(root);
             typeQuery(input, "甲");
 
-            // 桌面端整根左侧栏（分类列表）收起，搜索框在内容区里，照旧可用
-            expect(hidden(q(`.${PANEL_CLASS}__side`))).toBe(true);
+            // 桌面端整根左侧栏（分类列表）收起，搜索框在内容区里，照旧可用。
+            // 收起交给 `--search` 那段 CSS 的宽度过渡：这里刻意不加 fn__none，
+            // display:none 会让收起 / 展开变成硬跳
+            expect(q(`.${PANEL_CLASS}`)?.classList.contains(`${PANEL_CLASS}--search`)).toBe(true);
+            expect(hidden(q(`.${PANEL_CLASS}__side`))).toBe(false);
             expect(hidden(input.closest(`.${PANEL_CLASS}__search`))).toBe(false);
             expect(hidden(q(`.${PANEL_CLASS}__views`))).toBe(false);
         });

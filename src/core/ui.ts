@@ -512,6 +512,28 @@ export const PANEL_CSS = `
     box-sizing: border-box;
     border-right: 1px solid var(--b3-border-color);
     user-select: none;
+    /* 搜索时这一栏要收起来：宽度、内边距与透明度一起过渡，内容区跟着平滑变宽。
+       不用 display:none —— 那样没有过渡，一开一收是硬跳。
+       visibility 在收起时延时到宽度收完才生效（收起后既点不到也 Tab 不到），
+       展开时延迟为 0，立刻可见。 */
+    transition: width .2s ease, padding .2s ease, opacity .12s ease, border-right-color .2s ease,
+        visibility 0s;
+}
+.${PANEL_CLASS}--search > .${PANEL_CLASS}__side {
+    width: 0;
+    padding-inline: 0;
+    opacity: 0;
+    border-right-color: transparent;
+    visibility: hidden;
+    pointer-events: none;
+    transition: width .2s ease, padding .2s ease, opacity .12s ease, border-right-color .2s ease,
+        visibility 0s linear .2s;
+}
+/* 系统里关掉了动效就不要再过渡：宽度一步到位 */
+@media (prefers-reduced-motion: reduce) {
+    .${PANEL_CLASS}__side {
+        transition: none;
+    }
 }
 .${PANEL_CLASS}__tabs {
     flex: 1;

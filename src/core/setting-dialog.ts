@@ -1413,8 +1413,9 @@ export class SettingsPanel {
         this.searchActive = true;
         this.panelElement(root)?.classList.add(SEARCH_CLASS);
         // 分类导航给结果视图让位：桌面端整根收起左侧栏（搜索框在内容区里，不受影响），
-        // 移动端只收起那条页签栏（搜索框在它上面）
-        root.querySelector<HTMLElement>(`.${PANEL_CLASS}__side`)?.classList.add("fn__none");
+        // 移动端只收起那条页签栏（搜索框在它上面）。
+        // 桌面端这一栏的收起由 `--search` 那段 CSS 完成（宽度 / 透明度过渡），这里不加 fn__none ——
+        // display:none 没有过渡，一开一收就是硬跳。
         root.querySelector<HTMLElement>(".layout-tab-bar")?.classList.add("fn__none");
         log.info("search started");
     }
@@ -1475,8 +1476,8 @@ export class SettingsPanel {
         if (!root) {
             return;
         }
+        // 去掉 `--search`：桌面端左侧栏按 CSS 过渡滑回来，移动端页签栏同时恢复
         this.panelElement(root)?.classList.remove(SEARCH_CLASS);
-        root.querySelector<HTMLElement>(`.${PANEL_CLASS}__side`)?.classList.remove("fn__none");
         root.querySelector<HTMLElement>(".layout-tab-bar")?.classList.remove("fn__none");
         root.querySelector<HTMLElement>(`.${PANEL_CLASS}__search-empty`)?.classList.add("fn__none");
         root.querySelectorAll<HTMLElement>("[data-ss-tab-panel]").forEach((pane) => {
