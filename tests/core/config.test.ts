@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * `core/config.ts`：配置归一化、持久化、导出 / 导入 / 清除。
  *

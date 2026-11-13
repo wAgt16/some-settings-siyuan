@@ -56,6 +56,26 @@ export const mockState = {
     fetchPost: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({code: 0, data: null})),
 };
 
+/**
+ * 收掉测试遗留的面板实例。
+ *
+ * 宿主的 `Setting` 在关闭时才触发 `destroyCallback`，面板的核心清理（定时器、
+ * 静默期补写）都在那里；测试直接把实例丢掉，就等于留了一个还在轮询的定时器。
+ * `tests/setup.ts` 在每个测试后调用一次，模拟宿主机收掉所有还开着的对话框。
+ */
+export const closeOpenSettings = (): void => {
+    const open = mockState.settings.filter((setting) => setting.dialog !== undefined);
+    mockState.settings = [];
+    open.forEach((setting) => {
+        try {
+            setting.close();
+        } catch (error) {
+            // 测试可能已经把宿主的依赖替身卸掉了；收尾失败不该污染测试结果。
+            void error;
+        }
+    });
+};
+
 /** 复位所有宿主状态；`tests/setup.ts` 在每个测试前调用。 */
 export const resetMockState = (): void => {
     mockState.frontend = "desktop";

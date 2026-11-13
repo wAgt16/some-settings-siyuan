@@ -165,6 +165,25 @@
     * `Setting.open()` 会程序性聚焦正文里的第一个输入控件，移动端用
       `core/frontend.ts` 的 `withoutMobileInputFocus()` 只包住这次同步调用挡掉。
 
+23. **测试的运行环境是按文件选的，两条快路都有各自的代价。**
+    全集原本约 100 秒（环境初始化占 69%，就是给每个文件建 jsdom）；按下面拆开后 14～20 秒。
+    * **纯逻辑测试用 node 环境**：`tests/core/config` / `storage` / `error` / `registry` /
+      `tests/features/declarations` 这类不碰 DOM 的文件，第一行写 `// @vitest-environment node`。
+      公共 `tests/setup.ts` 里动 DOM 的几行必须先用 `typeof document !== "undefined"` 判断，
+      否则给 `window` 赋值的部分在 node 环境里直接抛错；`globalThis` 当 `window` 用的别名照旧保留。
+    * **其余文件走 `vmThreads`**（`vitest.config.mts` 里的 `vm` project）。**VM 上下文不是完整 Node**：
+      `ReadableStream`、Web Crypto 要自己补（见 `setup.ts` 顶部），`crypto.subtle` 还得同时挂到
+      `window.crypto` 上 —— 只补全局的话 jsdom 里的 `window.crypto` 仍是空的。
+    * **例外只能是整块替换 `window.location` 的文件**（`kernel-auto-reconnect`、`kernel-reconnect-button`）：
+      jsdom 的 `location` 连 `Object.defineProperty` 都拒绝，VM 里也没有可换的宿主对象，只能整块换掉才能观察
+      `reload()`。它们在 `forks` project 里跑。别再试 `poolMatchGlobs`：Vitest 5 已经删掉这个字段，
+      写了既不报错也不生效（会被当成未知选项静默忽略）。
+    * **子 project 默认继承根配置，数组是拼接而不是覆盖**：`include` / `exclude` / `setupFiles` 都会合并，
+      所以根配置把 `include` 留成空数组，文件清单只在各 project 里写一次，否则同一批文件会被两个 project 各跑一遍。
+    * **测试没亲手关掉的面板由 `tests/setup.ts` 的 `closeOpenSettings()` 兜底**：面板的视口轮询停止在宿主的
+      `destroyCallback` 里，测试直接把实例丢掉就等于留下一个定时器 —— 它在环境拆除之后才触发，
+      于是 `window is not defined`、进程退出码不为 0（断言却全是绿的）。
+
 ---
 
 ## 各功能的实现取舍

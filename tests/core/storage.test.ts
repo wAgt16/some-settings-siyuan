@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * `core/storage.ts`：插件私有存储目录的文件级访问。
  *

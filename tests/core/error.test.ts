@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * `core/error.ts`：错误隔离与上报。
  *

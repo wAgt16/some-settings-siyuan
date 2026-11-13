@@ -92,6 +92,10 @@ from "siyuan"` 去注册 UI；需要新的平台能力时先加进 `FeatureHost`
 `npm run dev | build | check | typecheck | lint | format | format:check`。`assets/` 里的图标与预览图
 由 `scripts/` 生成，不要手改。
 
+`npm test` 走两个 project（`vm` / `forks`，见 `vitest.config.mts`），纯逻辑测试的文件级环境声明、
+`vmThreads` 缺的 Web API 补齐、`closeOpenSettings()` 收尾都不能删——删了要么变慢十倍，要么留下
+退出码不为 0 的定时器（见 development.md 第 23 条）。
+
 发布：本地提交完成 → `plugin.json` 与 `package.json` 的 `version` **同步**提升 → `git push origin main`。
 **非用户要求禁止自行发布新版本、修改版本号。**
 

@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * 功能声明层的一致性测试。
  *

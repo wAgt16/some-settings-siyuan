@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * `core/registry.ts`：功能注册表。
  *
