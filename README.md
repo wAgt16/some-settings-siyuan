@@ -68,6 +68,7 @@ Categories follow the native SiYuan feature each setting affects, and match the 
 
 ### This plugin
 
+* Detailed log output
 * Clear this plugin's configuration
 * About this plugin
 * Import and export this plugin's configuration
@@ -94,7 +95,9 @@ plugin adds no top bar button, no status bar item and no dock item.
   available, it falls back to the first tab.
 * No per-item reset: to restore one item, export the configuration, edit it and import it again, or clear it all.
 * Both reconnect features reload the whole frontend; note content lives in the kernel, so a reload loses nothing.
-* The console log only collects from the moment its switch is on, so logs from plugin startup are never recorded.
+* Detailed logging is off by default: the console shows a single load hint until you turn it on under
+  **This plugin**, and then every event is logged as one INFO / WARN / ERROR line tagged with the feature id.
+* The console log viewer only collects from the moment its switch is on, so logs from plugin startup are never recorded.
 * On mobile the inline-code copy button follows the caret and copies the visible text only.
 * Jump-to-last-position only takes over whole-document bookmarks opened with a plain left click.
 * The recording window only replaces the UI: SiYuan's recorder has no pause, so it offers stop only.

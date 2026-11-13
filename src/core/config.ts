@@ -13,6 +13,7 @@
  * 功能留下的配置文件同样是本插件的配置（见 core/storage.ts）。
  */
 import type {Plugin} from "siyuan";
+import {createLogger} from "./log";
 import {featureById} from "./registry";
 import {
     listStoredFiles,
@@ -46,7 +47,7 @@ const idOfStoredFile = (fileName: string): string | undefined => {
     return ID_PATTERN.test(id) ? id : undefined;
 };
 
-const PREFIX = "[some-settings-siyuan]";
+const log = createLogger("core.config");
 
 /** 给错误挂上可读的问题清单，供面板一次性提示。 */
 export const attachProblems = (problems: string[]): Error & {problems: string[];} => {
@@ -215,7 +216,7 @@ export class ConfigStore {
         try {
             stored = await this.plugin.loadData(storageNameOf(id));
         } catch (error) {
-            console.warn(`[some-settings-siyuan] failed to read ${storageNameOf(id)}, using the default`, error);
+            log.warn(`cannot read ${storageNameOf(id)}; using the defaults`, error);
         }
         // 文件不存在时宿主 resolve 空串
         if (typeof stored === "string") {
@@ -223,9 +224,14 @@ export class ConfigStore {
         }
         const warnings: string[] = [];
         entry.config = normalizeConfig(entry.definition.settings, stored, (message) => warnings.push(message));
+        if (stored === null) {
+            log.info(`${id}: no saved configuration, using the defaults`, entry.config);
+        } else {
+            log.info(`${id}: loaded`, entry.config);
+        }
         if (warnings.length > 0) {
-            console.warn(`[some-settings-siyuan] ${storageNameOf(id)} has ${warnings.length} field problem(s):`);
-            warnings.forEach((warning) => console.warn(`[some-settings-siyuan] - ${warning}`));
+            log.warn(`${id}: ${warnings.length} field problem(s) in ${storageNameOf(id)}`);
+            warnings.forEach((warning) => log.warn(`${id}: ${warning}`));
         }
     }
 
@@ -261,7 +267,7 @@ export class ConfigStore {
         for (const storageName of await listStoredFiles(this.plugin)) {
             const id = idOfStoredFile(storageName);
             if (typeof id === "undefined") {
-                console.warn(`${PREFIX} ${storageName} is not a feature configuration file, leaving it alone`);
+                log.warn(`${storageName} is not a feature configuration file, leaving it alone`);
                 continue;
             }
             files.push({id, storageName});
@@ -289,24 +295,25 @@ export class ConfigStore {
      */
     private async writeFiles(files: {storageName: string; value: FeatureConfig;}[]): Promise<void> {
         const failed: string[] = [];
+        log.info(`writing ${files.length} configuration file(s)`);
         for (const {storageName, value} of files) {
-            console.log(`${PREFIX} writing ${storageName}`, value);
+            log.info(`writing ${storageName}`, value);
             const status = await writeStoredFile(this.plugin, storageName, value);
             if (!status.ok) {
-                console.error(`${PREFIX} ${storageName} was rejected by the kernel: ${status.detail}`);
+                log.error(`${storageName} was rejected by the kernel: ${status.detail}`);
                 failed.push(`${storageName}: ${status.detail}`);
                 continue;
             }
             const readBack = await readStoredFile(this.plugin, storageName);
             const detail = describeMismatch(value, readBack);
             if (detail) {
-                console.error(`${PREFIX} ${storageName} read back mismatch after write: ${detail}`, {
+                log.error(`${storageName} read back mismatch after write: ${detail}`, {
                     written: value,
                     readBack,
                 });
                 failed.push(`${storageName}：${detail}`);
             } else {
-                console.log(`${PREFIX} ${storageName} written and read back consistently`);
+                log.info(`${storageName} written and read back consistently`);
             }
         }
         if (failed.length > 0) {
@@ -350,10 +357,12 @@ export class ConfigStore {
             {...previous, ...patch},
             (message) => warnings.push(message),
         );
-        warnings.forEach((warning) => console.warn(`[some-settings-siyuan] ${warning}`));
+        warnings.forEach((warning) => log.warn(`${id}: ${warning}`));
         if (sameConfig(previous, next)) {
+            log.info(`${id}: patch changes nothing, skipping the write`);
             return;
         }
+        log.info(`${id}: applying patch`, patch);
         entry.config = next;
         try {
             await this.writeFiles([{storageName: storageNameOf(id), value: next}]);
@@ -381,13 +390,16 @@ export class ConfigStore {
     async clearAll(): Promise<void> {
         const failed: string[] = [];
         const cleared: string[] = [];
-        for (const {id, storageName} of await this.storedFiles()) {
+        const files = await this.storedFiles();
+        log.info(`clearing ${files.length} configuration file(s)`);
+        for (const {id, storageName} of files) {
             const status = await removeStoredFile(this.plugin, storageName);
             if (status.ok) {
+                log.info(`cleared ${storageName}`);
                 cleared.push(id);
                 continue;
             }
-            console.warn(`${PREFIX} failed to clear ${storageName}: ${status.detail}`);
+            log.warn(`failed to clear ${storageName}: ${status.detail}`);
             failed.push(`${storageName}: ${status.detail}`);
         }
         cleared.forEach((id) => {
@@ -414,11 +426,12 @@ export class ConfigStore {
         for (const {id, storageName} of await this.storedFiles()) {
             const stored = await readStoredFile(this.plugin, storageName);
             if (!isPlainObject(stored)) {
-                console.warn(`${PREFIX} ${storageName} does not hold an object, skipping it in the export`);
+                log.warn(`${storageName} does not hold an object, skipping it in the export`);
                 continue;
             }
             result[id] = stored;
         }
+        log.info(`exported ${Object.keys(result).length} configuration file(s)`, Object.keys(result));
         return result;
     }
 
@@ -463,6 +476,11 @@ export class ConfigStore {
         }
 
         const files = [...prepared, ...foreign].map(({id, value}) => ({storageName: storageNameOf(id), value}));
+        log.info(`importing ${files.length} configuration file(s)`, {
+            known: prepared.map(({id}) => id),
+            foreign: foreign.map(({id}) => id),
+            skipped,
+        });
         await this.writeFiles(files);
         // 内存态跟着磁盘走，导入的配置立刻生效，不必等页面重载
         prepared.forEach(({id, value}) => {

@@ -45,6 +45,7 @@ vi.mock("siyuan", async (importOriginal) => {
 const {mockState} = await import("../mocks/siyuan");
 const {mountFeature} = await import("../helpers/feature-host");
 const {default: assetsNewFile} = await import("../../src/features/assets-new-file/index");
+const {setDetailedLogging} = await import("../../src/core/log");
 
 type Harness = ReturnType<typeof mountFeature>;
 
@@ -127,11 +128,14 @@ describe("斜杠命令新建文件到 assets", () => {
 
     beforeEach(() => {
         recorder.dialogs = [];
+        // 失败路径只通过 reportError 留下控制台记录，详细日志要显式打开
+        setDetailedLogging(true);
         harness = mountFeature(assetsNewFile, {i18n});
         mockState.frontend = "desktop";
     });
 
     afterEach(() => {
+        setDetailedLogging(false);
         harness.dispose();
         document.body.innerHTML = "";
     });
@@ -305,7 +309,9 @@ describe("斜杠命令新建文件到 assets", () => {
         expect(harness.records.messages).toEqual(["创建文件失败，请稍后再试"]);
         expect(console.error).toHaveBeenCalledWith(
             expect.stringContaining("assets-new-file.create"),
-            expect.objectContaining({message: "asset upload failed: duplicated name"}),
+        );
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining("asset upload failed: duplicated name"),
         );
     });
 
@@ -401,7 +407,6 @@ describe("斜杠命令新建文件到 assets", () => {
 
         expect(console.error).toHaveBeenCalledWith(
             expect.stringContaining("assets-new-file.insert"),
-            expect.any(Error),
         );
         // notifyUser 为 false：不给用户弹「创建失败」，否则会以为要重来一次
         expect(harness.records.messages).toEqual([]);

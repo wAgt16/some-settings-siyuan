@@ -109,6 +109,7 @@ describe("桌面端命令面板瘦身", () => {
         const listeners: (() => void)[] = [];
         const host = {
             config: {width: 30},
+            log: {info: () => undefined, warn: () => undefined, error: () => undefined},
             addStyle: (css: string) => {
                 styles.push(css);
             },

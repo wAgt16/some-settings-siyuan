@@ -176,14 +176,17 @@ export const mountExitConfirm = (host: FeatureHost): FeatureInstance => {
             return Promise.reject(cancelled());
         }
         asking = true;
+        host.log.info("asking before the application quits");
         // 先收掉宿主的「正在退出」遮罩，否则用户是在遮罩上被问话
         dismissExitOverlay();
         return ask().then((confirmed) => {
             asking = false;
             if (!confirmed) {
+                host.log.info("the user cancelled the quit");
                 dismissExitFailure();
                 return Promise.reject(cancelled());
             }
+            host.log.info("the user confirmed the quit");
             return original.call(window, input, init);
         });
     };

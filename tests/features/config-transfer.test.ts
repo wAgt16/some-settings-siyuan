@@ -11,11 +11,13 @@
  */
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from "vitest";
+import {setDetailedLogging} from "../../src/core/log";
 import {parseImport} from "../../src/features/config-transfer/parse";
 import {
     exportConfigs,
@@ -81,7 +83,13 @@ const captureTimeouts = () => {
     return timers;
 };
 
+beforeEach(() => {
+    // 失败路径只通过 reportError 留下控制台记录
+    setDetailedLogging(true);
+});
+
 afterEach(() => {
+    setDetailedLogging(false);
     dialogOptions.length = 0;
 });
 
@@ -371,7 +379,7 @@ describe("插件配置导入导出", () => {
             runButton().click();
             await flush();
 
-            expect(console.error).toHaveBeenCalledWith(expect.stringContaining("[config-transfer.import]"), failure);
+            expect(console.error).toHaveBeenCalledWith(expect.stringContaining("config-transfer.import"));
             // reportError 同时会给用户一条错误提示
             expect(mockState.messages.at(-1)!.text).toContain("writer rejected");
             expect(mockState.messages.at(-1)!.type).toBe("error");

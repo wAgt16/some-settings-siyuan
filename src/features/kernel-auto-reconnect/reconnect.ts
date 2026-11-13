@@ -79,12 +79,14 @@ export const mountKernelAutoReconnect = (host: FeatureHost): FeatureInstance => 
                     return;
                 }
                 if (await probeKernel()) {
-                    host.log(`kernel is back on probe ${index + 1}; reloading the frontend to rebuild the WebSocket`);
+                    host.log.info(
+                        `kernel is back on probe ${index + 1}; reloading the frontend to rebuild the WebSocket`,
+                    );
                     window.location.reload();
                     return;
                 }
             }
-            host.log(
+            host.log.warn(
                 `kernel not detected after ${attempts} auto-reconnect attempts; falling back to SiYuan's own reconnect`,
             );
         } finally {

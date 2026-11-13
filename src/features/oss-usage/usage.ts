@@ -539,7 +539,7 @@ export const mountOssUsage = (host: FeatureHost): FeatureInstance => {
         body.innerHTML = `<div class="${CLASS}__row">` +
             `<span class="${CLASS}__key">${escapeHtml(t("ossUsage.failed"))}</span>` +
             `<span class="${CLASS}__error">${escapeHtml(result.message ?? "")}</span></div>${tip}`;
-        host.log(`GetBucketStat failed: ${result.message ?? "unknown"}`);
+        host.log.warn(`GetBucketStat failed: ${result.message ?? "unknown"}`);
     };
 
     const stopRequest = () => {
@@ -595,6 +595,7 @@ export const mountOssUsage = (host: FeatureHost): FeatureInstance => {
                 return;
             }
             if (result.stat) {
+                host.log.info(`bucket usage loaded: ${result.stat.objectCount} object(s), ${result.stat.storage} B`);
                 renderStat(body, result.stat);
             } else {
                 renderFailure(body, result);

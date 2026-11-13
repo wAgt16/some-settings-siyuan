@@ -10,11 +10,14 @@
 import type {Plugin} from "siyuan";
 import type {Mock} from "vitest";
 import {
+    afterEach,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from "vitest";
+import {setDetailedLogging} from "../../src/core/log";
 import {
     listStoredFiles,
     readStoredFile,
@@ -25,6 +28,14 @@ import {
 import {mockState} from "../mocks/siyuan";
 
 const PLUGIN_NAME = "some-settings-siyuan";
+
+beforeEach(() => {
+    setDetailedLogging(true);
+});
+
+afterEach(() => {
+    setDetailedLogging(false);
+});
 const STORAGE_DIR = `/data/storage/petal/${PLUGIN_NAME}`;
 
 /** 只实现核心用到的那四个成员；其余由宿主的 Plugin 提供。 */

@@ -190,7 +190,7 @@ const retarget = async (
     try {
         target = await resolveTarget(String(host.config.target ?? ""), host, send);
     } catch (error) {
-        host.log("failed to resolve the configured target", error);
+        host.log.warn("failed to resolve the configured target", error);
         return failure(error instanceof Error && error.message ? error.message : host.i18n("newDocFixedTarget.failed"));
     }
     if (!target || host.signal.aborted) {

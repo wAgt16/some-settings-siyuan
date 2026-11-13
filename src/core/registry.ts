@@ -33,6 +33,7 @@ import hideMobileExit from "../features/hide-mobile-exit";
 import inlineCodeCopy from "../features/inline-code-copy";
 import kernelAutoReconnect from "../features/kernel-auto-reconnect";
 import kernelReconnectButton from "../features/kernel-reconnect-button";
+import logOutput from "../features/log-output";
 import mobileBarAnimation from "../features/mobile-bar-animation";
 import mobileBlockIconAlways from "../features/mobile-block-icon-always";
 import mobileConsoleLog from "../features/mobile-console-log";
@@ -58,6 +59,9 @@ import {FEATURE_CATEGORIES} from "./types";
 import {supportsCurrentHost} from "./version";
 
 export const FEATURES: FeatureDefinition[] = [
+    // 第一个必须是「日志输出」：功能装载器按这个顺序挂载，它挂载时才打开详细日志，
+    // 排在后面的话，它前面那些功能的装载日志会被开关吞掉。
+    logOutput,
     codeBlockLangEmpty,
     assetInfoMenu,
     assetsNewFile,

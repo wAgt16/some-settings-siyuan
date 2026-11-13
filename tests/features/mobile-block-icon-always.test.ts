@@ -23,7 +23,10 @@ import {
 import type {FeatureHost} from "../../src/core/types";
 import definition from "../../src/features/mobile-block-icon-always";
 import {mountMobileBlockIconAlways} from "../../src/features/mobile-block-icon-always/gutter";
-import {mountFeature} from "../helpers/feature-host";
+import {
+    mountFeature,
+    noopLogger,
+} from "../helpers/feature-host";
 
 /** 源码里的搬回上限；测试照抄一份，用来钉住「到了上限就交回内核」。 */
 const MAX_RESTORES = 40;
@@ -333,7 +336,7 @@ describe("移动端块标保持显示", () => {
         const clearIntervalSpy = vi.spyOn(window, "clearInterval");
         const host = {
             config: {},
-            log: () => undefined,
+            log: noopLogger,
             addEventBus: () => undefined,
         } as unknown as FeatureHost;
 

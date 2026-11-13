@@ -24,6 +24,14 @@ import type {
     SettingField,
 } from "../../src/core/types";
 
+/** 只需要一个日志器的测试用的空实现（接口是分级的，直接写函数已经不合身）。 */
+export const noopLogger = {
+    scope: "test",
+    info: () => undefined,
+    warn: () => undefined,
+    error: () => undefined,
+};
+
 /** 一次 `addTopBar` / `addStatusBar` / `addDock` / `addTab` 的调用记录。 */
 export interface RegistrationRecord {
     // 各注册入口的入参形状不同，测试按需取字段，这里不逐一收窄
@@ -54,7 +62,10 @@ export interface HostRecords {
     patches: FeatureConfig[];
     /** `onConfigChange` 注册的回调。 */
     configListeners: (() => void)[];
+    /** 每次 `host.log.*` 的入参（按调用顺序）。 */
     logs: unknown[][];
+    /** 与 `logs` 一一对应的级别，用来断言某条记录走的是哪一档。 */
+    logLevels: string[];
 }
 
 /** 测试里操作一个已挂载功能的句柄。 */
@@ -98,6 +109,7 @@ const createRecords = (): HostRecords => ({
     patches: [],
     configListeners: [],
     logs: [],
+    logLevels: [],
 });
 
 /** 造一个功能宿主；`mount` 由调用方（`mountFeature`）或测试自己决定何时调。 */
@@ -130,8 +142,20 @@ export const createHost = (definition: FeatureDefinition, options: HostOptions =
         },
         signal: controller.signal,
         i18n,
-        log: (...args: unknown[]) => {
-            records.logs.push(args);
+        log: {
+            scope: definition.id,
+            info: (...args: unknown[]) => {
+                records.logs.push(args);
+                records.logLevels.push("info");
+            },
+            warn: (...args: unknown[]) => {
+                records.logs.push(args);
+                records.logLevels.push("warn");
+            },
+            error: (...args: unknown[]) => {
+                records.logs.push(args);
+                records.logLevels.push("error");
+            },
         },
         setConfig: async (patch: FeatureConfig) => {
             records.patches.push(patch);

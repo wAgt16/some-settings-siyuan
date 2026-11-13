@@ -17,6 +17,20 @@ import {
     supportsCurrentHost,
 } from "../../src/core/version";
 
+/**
+ * 重新加载版本模块：告警去重表在模块作用域，要观察「只告警一次」只能拿一份新的。
+ * 同时把那份新模块自己的日志开关打开 —— 它和顶部导入的不是同一个实例。
+ */
+const freshVersion = async (): Promise<typeof import("../../src/core/version")> => {
+    vi.resetModules();
+    const [version, log] = await Promise.all([
+        import("../../src/core/version"),
+        import("../../src/core/log"),
+    ]);
+    log.setDetailedLogging(true);
+    return version;
+};
+
 /** 只带版本区间的功能声明；其余字段判定用不到。 */
 const definitionWith = (range: {minAppVersion?: string; maxAppVersion?: string;}): FeatureDefinition => ({
     id: "demo",
@@ -152,8 +166,7 @@ describe("supportsCurrentHost", () => {
     });
 
     it("宿主版本读不到时按「不限」处理，并只告警一次", async () => {
-        vi.resetModules();
-        const fresh = await import("../../src/core/version");
+        const fresh = await freshVersion();
         window.siyuan.config.system = undefined as never;
         expect(fresh.supportsCurrentHost(definitionWith({minAppVersion: "9.9.9"}))).toBe(true);
         expect(fresh.supportsCurrentHost(definitionWith({minAppVersion: "9.9.9"}))).toBe(true);
@@ -162,8 +175,7 @@ describe("supportsCurrentHost", () => {
     });
 
     it("边界写法认不出时忽略该侧，并只告警一次", async () => {
-        vi.resetModules();
-        const fresh = await import("../../src/core/version");
+        const fresh = await freshVersion();
         window.siyuan.config.system.kernelVersion = "3.8.7";
         expect(fresh.supportsCurrentHost(definitionWith({minAppVersion: "newest"}))).toBe(true);
         expect(fresh.supportsCurrentHost(definitionWith({minAppVersion: "newest"}))).toBe(true);
@@ -172,8 +184,7 @@ describe("supportsCurrentHost", () => {
     });
 
     it("上限写法认不出时同样忽略，并只告警一次", async () => {
-        vi.resetModules();
-        const fresh = await import("../../src/core/version");
+        const fresh = await freshVersion();
         window.siyuan.config.system.kernelVersion = "3.8.7";
         expect(fresh.supportsCurrentHost(definitionWith({maxAppVersion: "3.8.x"}))).toBe(true);
         expect(fresh.supportsCurrentHost(definitionWith({maxAppVersion: "3.8.x"}))).toBe(true);
@@ -192,7 +203,7 @@ describe("告警去重表按功能隔离", () => {
     });
 
     it("两个功能各告警一次，互不影响", async () => {
-        const fresh = await import("../../src/core/version");
+        const fresh = await freshVersion();
         window.siyuan.config.system = undefined as never;
         fresh.supportsCurrentHost({...definitionWith({minAppVersion: "9.9.9"}), id: "alpha"});
         fresh.supportsCurrentHost({...definitionWith({minAppVersion: "9.9.9"}), id: "beta"});

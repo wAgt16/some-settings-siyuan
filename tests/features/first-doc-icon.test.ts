@@ -21,7 +21,10 @@ import {
 } from "vitest";
 import definition from "../../src/features/first-doc-icon";
 import {mountFirstDocIcon} from "../../src/features/first-doc-icon/icon";
-import {mountFeature} from "../helpers/feature-host";
+import {
+    mountFeature,
+    noopLogger,
+} from "../helpers/feature-host";
 import {mockState} from "../mocks/siyuan";
 
 /** 可控的「已打开的编辑器」列表；形状照 `Protyle` 外壳 + 内层 `IProtyle`。 */
@@ -318,7 +321,7 @@ describe("固定首次添加的文档图标", () => {
     it("挂载只加一个捕获期监听，destroy 后移除", () => {
         const host = {
             config: {emoji: "📄"},
-            log: () => undefined,
+            log: noopLogger,
         } as unknown as Parameters<typeof mountFirstDocIcon>[0];
 
         const instance = mountFirstDocIcon(host);

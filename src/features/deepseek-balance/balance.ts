@@ -322,7 +322,7 @@ export const mountDeepseekBalance = (host: FeatureHost): FeatureInstance => {
             return;
         }
         logTopics.set(topic, message);
-        host.log(message);
+        host.log.info(message);
     };
 
     /**
@@ -655,7 +655,7 @@ export const mountDeepseekBalance = (host: FeatureHost): FeatureInstance => {
     apply();
     startTimer();
     runNow();
-    host.log(`Mounted; polling every ${intervalMsOf(host) / 1000}s`);
+    host.log.info(`Mounted; polling every ${intervalMsOf(host) / 1000}s`);
 
     return {
         destroy: () => {
@@ -663,7 +663,7 @@ export const mountDeepseekBalance = (host: FeatureHost): FeatureInstance => {
                 return;
             }
             destroyed = true;
-            host.log("Unmounted; polling and injection stopped");
+            host.log.info("Unmounted; polling and injection stopped");
             // 先停掉所有会再调进来的入口，再清资源，destroy 幂等
             window.removeEventListener("siyuan-ai-config-changed", onAiConfigChanged);
             window.removeEventListener("focus", onFocus);

@@ -180,9 +180,11 @@ export const mountExternalLinkConfirm = (host: FeatureHost): FeatureInstance => 
         }
         event.preventDefault();
         if (dialog) {
+            host.log.info(`another external link prompt is open, cancelling ${href}`);
             // 已经有询问窗口在等答复时，只取消本次跳转，不再叠加一个
             return;
         }
+        host.log.info(`asking before opening ${href}`);
         ask(detail, href);
     });
 

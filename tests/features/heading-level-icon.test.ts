@@ -19,7 +19,10 @@ import {
 import type {FeatureHost} from "../../src/core/types";
 import definition from "../../src/features/heading-level-icon";
 import {mountHeadingLevelIcon} from "../../src/features/heading-level-icon/level";
-import {mountFeature} from "../helpers/feature-host";
+import {
+    mountFeature,
+    noopLogger,
+} from "../helpers/feature-host";
 
 const PLAIN = "#iconHeadings";
 
@@ -393,7 +396,7 @@ describe("标题图标显示层级", () => {
         respond([{id: "i1", subtype: "h6"}]);
         const host = {
             config: {},
-            log: () => undefined,
+            log: noopLogger,
         } as unknown as FeatureHost;
 
         const instance = mountHeadingLevelIcon(host);
