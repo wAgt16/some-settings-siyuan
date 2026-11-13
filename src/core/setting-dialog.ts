@@ -255,6 +255,16 @@ const HIT_CLASS = `${PANEL_CLASS}__hit`;
 /** 搜索结果视图挂在面板根上的状态类。 */
 const SEARCH_CLASS = `${PANEL_CLASS}--search`;
 
+/**
+ * 移动端页签栏收起 / 展开的过场时长（毫秒），与 `PANEL_CSS` 里那段 `height` 过渡同一个数。
+ *
+ * 它只用来决定「什么时候把过渡起点那个自定义属性删掉」，不参与动画本身。
+ */
+const TABBAR_ANIM_MS = 200;
+
+/** 移动端页签栏收起前，把实测高度写进这个自定义属性当 `height` 过渡的起点。 */
+const TABBAR_HEIGHT_VAR = "--ss-tabbar-height";
+
 /** 焦点是不是停在「可以输入文字」的控件上：这时 `/` 属于用户要输入的字符，不是快捷键。 */
 const isEditingControl = (element: Element | null): boolean => {
     if (!element) {
@@ -345,6 +355,8 @@ export class SettingsPanel {
     private searchKeys?: (event: KeyboardEvent) => void;
     /** 恢复滚动位置的那一帧（个别内核算不到滚动高度时补一次）。 */
     private scrollFrame?: number;
+    /** 移动端页签栏展开后，删掉过渡起点高度的那个定时器。 */
+    private tabBarTimer?: number;
 
     constructor(options: SettingsPanelOptions) {
         this.options = options;
@@ -1432,12 +1444,12 @@ export class SettingsPanel {
         }
         this.captureScroll(root);
         this.searchActive = true;
+        // 分类导航给结果视图让位：桌面端整根收起左侧栏，移动端收起顶部页签栏，
+        // 两者都只加这一个类，怎么收由 `--search` 那两段 CSS 决定（宽度 / 高度过渡）——
+        // 这里刻意不加 fn__none：display:none 没有过渡，一开一收就是硬跳。
+        // 页签栏的高度是内容撑出来的，收起前先把实测高度交给 CSS 当起点。
+        this.lockTabBarHeight(root);
         this.panelElement(root)?.classList.add(SEARCH_CLASS);
-        // 分类导航给结果视图让位：桌面端整根收起左侧栏（搜索框在内容区里，不受影响），
-        // 移动端只收起那条页签栏（搜索框在它上面）。
-        // 桌面端这一栏的收起由 `--search` 那段 CSS 完成（宽度 / 透明度过渡），这里不加 fn__none ——
-        // display:none 没有过渡，一开一收就是硬跳。
-        root.querySelector<HTMLElement>(".layout-tab-bar")?.classList.add("fn__none");
         log.info("search started");
     }
 
@@ -1497,9 +1509,10 @@ export class SettingsPanel {
         if (!root) {
             return;
         }
-        // 去掉 `--search`：桌面端左侧栏按 CSS 过渡滑回来，移动端页签栏同时恢复
+        // 去掉 `--search`：桌面端左侧栏、移动端页签栏一起按 CSS 过渡滑回来。
+        // 页签栏的过渡起点还留着，展开完再把它删掉，让高度回到 auto。
         this.panelElement(root)?.classList.remove(SEARCH_CLASS);
-        root.querySelector<HTMLElement>(".layout-tab-bar")?.classList.remove("fn__none");
+        this.releaseTabBarHeight(root);
         root.querySelector<HTMLElement>(`.${PANEL_CLASS}__search-empty`)?.classList.add("fn__none");
         root.querySelectorAll<HTMLElement>("[data-ss-tab-panel]").forEach((pane) => {
             pane.classList.remove("fn__none");
@@ -1766,6 +1779,53 @@ export class SettingsPanel {
         });
     }
 
+    /**
+     * 收起移动端页签栏之前，把它此刻的真实高度写进 `--ss-tabbar-height`。
+     *
+     * 这条的高度由内容撑出来（`auto`），`auto → 0` 没法过渡；量成像素值当起点之后，
+     * CSS 里那条 `height: var(--ss-tabbar-height, auto)` 就能从它平滑收到 0。
+     * 桌面端没有这条页签栏，`querySelector` 直接取不到、什么都不做。
+     *
+     * 变量还在时不再重量：收起 / 展开的过渡途中量到的是动画中间的高度，
+     * 拿它当起点会把下一次展开收到一半就停住。等展开结束（`releaseTabBarHeight`）再删。
+     */
+    private lockTabBarHeight(root: HTMLElement): void {
+        const bar = root.querySelector<HTMLElement>(".layout-tab-bar");
+        if (!bar || bar.style.getPropertyValue(TABBAR_HEIGHT_VAR)) {
+            return;
+        }
+        // 正常状态下 offsetHeight 就是自然高度；已经在收起途中（高度 0）时退回 scrollHeight，
+        // 它量的是内容高度、不受当前动画高度影响。量不到（0）就不写，CSS 退回 auto。
+        const height = bar.offsetHeight || bar.scrollHeight;
+        if (height > 0) {
+            bar.style.setProperty(TABBAR_HEIGHT_VAR, `${height}px`);
+            // 强制一次回流：自定义属性必须和后面的类分两次样式计算落地，否则浏览器只看到
+            // 「auto → 0」——起点不可过渡，收起会直接跳过去。读一次 offsetHeight 就分开了。
+            void bar.offsetHeight;
+        }
+    }
+
+    /**
+     * 展开过渡结束之后，删掉那个起点高度，让页签栏的高度回到 `auto`。
+     *
+     * 留着它也能用（它就是当时的自然高度），但方向变了、字号变了、页签折行了，
+     * 这个像素值就成了死数 —— 过渡一完就交还给内容自己算。
+     */
+    private releaseTabBarHeight(root: HTMLElement): void {
+        if (this.tabBarTimer !== undefined) {
+            window.clearTimeout(this.tabBarTimer);
+            this.tabBarTimer = undefined;
+        }
+        const bar = root.querySelector<HTMLElement>(".layout-tab-bar");
+        if (!bar) {
+            return;
+        }
+        this.tabBarTimer = window.setTimeout(() => {
+            this.tabBarTimer = undefined;
+            bar.style.removeProperty(TABBAR_HEIGHT_VAR);
+        }, TABBAR_ANIM_MS);
+    }
+
     /** 收掉搜索留下的东西：快捷键监听、补帧与状态；幂等，面板关闭与重新打开都会走这里。 */
     private disposeSearch(): void {
         if (this.searchKeys) {
@@ -1775,6 +1835,10 @@ export class SettingsPanel {
         if (this.scrollFrame !== undefined) {
             window.cancelAnimationFrame(this.scrollFrame);
             this.scrollFrame = undefined;
+        }
+        if (this.tabBarTimer !== undefined) {
+            window.clearTimeout(this.tabBarTimer);
+            this.tabBarTimer = undefined;
         }
         this.searchActive = false;
         this.searchText = "";

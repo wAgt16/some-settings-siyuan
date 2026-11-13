@@ -1502,12 +1502,51 @@ describe("搜索", () => {
             expect(hidden(q(`.${PANEL_CLASS}__views`))).toBe(false);
         });
 
-        it("移动端有查询时收起的是顶部页签栏", async () => {
+        it("移动端有查询时收起的是顶部页签栏，靠过渡而不是 display:none", async () => {
             mockState.frontend = "mobile";
             const {root, q, panelElement} = await open(twoInEditor());
             typeQuery(searchBox(root), "甲");
-            expect(hidden(q(".layout-tab-bar"))).toBe(true);
             expect(panelElement.classList.contains(`${PANEL_CLASS}--search`)).toBe(true);
+            // 收起交给 `--search` 那段 height 过渡：塞 fn__none 就没有过渡，一开一收是硬跳
+            expect(hidden(q(".layout-tab-bar"))).toBe(false);
+        });
+
+        it("移动端收起前把页签栏的实测高度交给 CSS，展开结束后再交还给内容", async () => {
+            mockState.frontend = "mobile";
+            const {root, q} = await open(twoInEditor());
+            const bar = q<HTMLElement>(".layout-tab-bar") as HTMLElement;
+            // jsdom 量不出高度，这里给一个「内容撑出来的高度」
+            const measured = vi.spyOn(bar, "offsetHeight", "get").mockReturnValue(42);
+            const input = searchBox(root);
+
+            typeQuery(input, "甲");
+            expect(bar.style.getPropertyValue("--ss-tabbar-height")).toBe("42px");
+
+            typeQuery(input, "");
+            // 展开要从 0 长回 42px，起点这时候还不能删
+            expect(bar.style.getPropertyValue("--ss-tabbar-height")).toBe("42px");
+            // 过渡结束（200ms）之后删掉，高度回到 auto：方向变了、页签折行了也不会被死数卡住
+            await vi.waitFor(() => expect(bar.style.getPropertyValue("--ss-tabbar-height")).toBe(""), {
+                timeout: 1000,
+            });
+            measured.mockRestore();
+        });
+
+        it("过渡途中再次搜索不会把动画中间的高度当成起点", async () => {
+            mockState.frontend = "mobile";
+            const {root, q} = await open(twoInEditor());
+            const bar = q<HTMLElement>(".layout-tab-bar") as HTMLElement;
+            const measured = vi.spyOn(bar, "offsetHeight", "get").mockReturnValue(42);
+            const input = searchBox(root);
+
+            typeQuery(input, "甲");
+            // 展开途中高度还在动画里（量到 0），这时候再搜一次不能拿 0 覆盖掉起点
+            typeQuery(input, "");
+            measured.mockReturnValue(0);
+            typeQuery(input, "甲");
+
+            expect(bar.style.getPropertyValue("--ss-tabbar-height")).toBe("42px");
+            measured.mockRestore();
         });
 
         it("清空后恢复分类、页签、行与最后一行标记", async () => {

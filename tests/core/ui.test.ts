@@ -521,6 +521,22 @@ describe("PANEL_CSS", () => {
         expect(PANEL_CSS).toContain("@media (prefers-reduced-motion: reduce)");
     });
 
+    it("移动端页签栏收起与桌面端左侧栏同一套过渡：高度从实测值过渡到 0", () => {
+        // 高度是内容撑出来的 auto，auto → 0 没法过渡：JS 量好高度写进这个变量当起点
+        expect(PANEL_CSS).toContain("height: var(--ss-tabbar-height, auto)");
+        expect(PANEL_CSS).toContain(`.${PANEL_CLASS}--search.${PANEL_CLASS}--mobile > .layout-tab-bar {`);
+        expect(PANEL_CSS).toContain("transition: height .2s ease, opacity .12s ease");
+        // 收起之后才真正隐身（点不到、Tab 不到），展开时立刻可见
+        expect(PANEL_CSS).toContain("visibility 0s linear .2s");
+    });
+
+    it("移动端搜索框左端对齐页签栏第一项，桌面端窄窗口仍对齐行标题", () => {
+        // 页签栏自己 4px + 项 4px = 8px；桌面窄窗口是页签内容 8px + 行 10px = 18px
+        expect(PANEL_CSS).toContain(`.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__search {`);
+        expect(PANEL_CSS).toContain("padding: 8px 8px 6px;");
+        expect(PANEL_CSS).toContain("padding: 8px 10px 6px 18px;");
+    });
+
     it("作用域限定在面板类名下，含移动端与窄屏两套规则", () => {
         expect(PANEL_CSS).toContain(`.${PANEL_CLASS} {`);
         expect(PANEL_CSS).toContain(`.${PANEL_CLASS}--mobile`);

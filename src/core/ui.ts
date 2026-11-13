@@ -484,9 +484,26 @@ export const PANEL_CSS = `
     overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    /* 搜索时这一条也要收起来，过渡与桌面端左侧栏一套时长、一条曲线。
+       高度是内容撑出来的 auto，auto → 0 不能过渡：JS 在收起前把实测高度写进
+       --ss-tabbar-height 当起点（见 core/setting-dialog.ts 的 lockTabBarHeight），
+       这里只负责两端与时长，和左侧栏那段 width 过渡同一个写法。
+       border-box 是为了让 JS 量到的 offsetHeight 直接能当 height 用（含那条 1px 底边）。 */
+    box-sizing: border-box;
+    height: var(--ss-tabbar-height, auto);
+    transition: height .2s ease, opacity .12s ease, visibility 0s;
 }
 .${PANEL_CLASS}--mobile > .layout-tab-bar::-webkit-scrollbar {
     display: none;
+}
+/* 搜索时收起页签栏：高度收到 0、淡出，收完之后才真正隐身（点不到、Tab 不到），
+   展开时这个延时为 0，一有高度就看得见 —— 与桌面端左侧栏的收起规则同构。 */
+.${PANEL_CLASS}--search.${PANEL_CLASS}--mobile > .layout-tab-bar {
+    height: 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: height .2s ease, opacity .12s ease, visibility 0s linear .2s;
 }
 .${PANEL_CLASS}--mobile > .layout-tab-bar > .${PANEL_CLASS}__tab {
     flex: 0 0 auto;
@@ -535,9 +552,13 @@ export const PANEL_CSS = `
     transition: width .2s ease, padding .2s ease, opacity .12s ease, border-right-color .2s ease,
         visibility 0s linear .2s;
 }
-/* 系统里关掉了动效就不要再过渡：宽度一步到位 */
+/* 系统里关掉了动效就不要再过渡：宽度 / 高度一步到位。收起方向的那几条也要点名写进来，
+   它们的特异性比基础规则高，只关基础规则的话「收起」照样会动。 */
 @media (prefers-reduced-motion: reduce) {
-    .${PANEL_CLASS}__side {
+    .${PANEL_CLASS}__side,
+    .${PANEL_CLASS}--search > .${PANEL_CLASS}__side,
+    .${PANEL_CLASS}--mobile > .layout-tab-bar,
+    .${PANEL_CLASS}--search.${PANEL_CLASS}--mobile > .layout-tab-bar {
         transition: none;
     }
 }
@@ -887,6 +908,12 @@ export const PANEL_CSS = `
     .b3-dialog__body .${PANEL_CLASS} .${PANEL_CLASS}__search {
         padding: 8px 10px 6px 18px;
     }
+    /* 移动端例外：它的搜索框在页签栏上方，左端要对的是「页签栏第一项的左边」和行的分割线
+       （页签栏自己 4px + 项 4px = 8px），不是行标题的文字起点。两端都取 8px，
+       输入框正好铺满分割线的宽度。选择器多带 --mobile 一级，才压得过上面那条窄屏规则。 */
+    .b3-dialog__body .${PANEL_CLASS}.${PANEL_CLASS}--mobile > .${PANEL_CLASS}__search {
+        padding: 8px 8px 6px;
+    }
     /* 搜索结果的分组标题：窄屏下留白与横向内边距一起跟着 10px 走 */
     .b3-dialog__body .${PANEL_CLASS} .${PANEL_CLASS}__group {
         padding: 8px 10px 4px;
@@ -895,6 +922,12 @@ export const PANEL_CSS = `
     .b3-dialog__body .${PANEL_CLASS}.${PANEL_CLASS}--search > .${PANEL_CLASS}__views >
     .${PANEL_CLASS}__panes > .${PANEL_CLASS}__view {
         padding: 0 10px;
+    }
+    /* 移动端同样按 8px 走：进来搜（结果列）和没搜（普通行）时，行的分割线停在同一处，
+       否则一进搜索整列会横向挪 2px，搜索框也跟着对不齐。 */
+    .b3-dialog__body .${PANEL_CLASS}.${PANEL_CLASS}--search.${PANEL_CLASS}--mobile >
+    .${PANEL_CLASS}__views > .${PANEL_CLASS}__panes > .${PANEL_CLASS}__view {
+        padding: 0 8px;
     }
     .b3-dialog__body .${PANEL_CLASS} .b3-label.config-item,
     .b3-dialog__body .${PANEL_CLASS} .config-item {
