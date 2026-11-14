@@ -284,17 +284,17 @@ describe("mapLimit", () => {
         expect(run).not.toHaveBeenCalled();
     });
 
-    it("上限大于任务数时按任务数并发", async () => {
+    it("并发度按上限切分，不会把整批同时压出去", async () => {
         let running = 0;
         let peak = 0;
-        const results = await mapLimit([1, 2], 8, async (value) => {
+        const results = await mapLimit([1, 2, 3, 4, 5], 2, async (value) => {
             running += 1;
             peak = Math.max(peak, running);
             await new Promise((resolve) => setTimeout(resolve, 2));
             running -= 1;
             return value * 2;
         });
-        expect(results).toEqual([2, 4]);
+        expect(results).toEqual([2, 4, 6, 8, 10]);
         expect(peak).toBe(2);
     });
 
@@ -304,7 +304,7 @@ describe("mapLimit", () => {
         expect(run).toHaveBeenCalledTimes(3);
     });
 
-    it("任务抛错后，已启动的其余任务仍会跑完", async () => {
+    it("任务抛错后，其余的仍会被存活的 worker 跑完", async () => {
         const ran: number[] = [];
         void mapLimit([1, 2, 3, 4], 2, async (value) => {
             ran.push(value);
@@ -314,7 +314,7 @@ describe("mapLimit", () => {
             await new Promise((resolve) => setTimeout(resolve, 1));
             return value;
         }).catch(() => undefined);
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        await vi.waitFor(() => expect(ran).toHaveLength(4));
         expect([...ran].sort()).toEqual([1, 2, 3, 4]);
     });
 
