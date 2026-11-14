@@ -200,9 +200,10 @@ export class ConfigStore {
      * `prefetch()` 已经读回来的原始值，键是功能 id。
      *
      * 只影响「什么时候读」，`register()` 仍然按调用顺序应用，于是挂载顺序与日志顺序都不变。
-     * 存的是**未兑现的 Promise**：某个文件读得慢 / 一直不返回时，只有它自己的 `register()`
-     * 会等，其余功能照常挂载（先等全部读完再逐个注册会把一次慢读放大成整插件启动失败）。
-     * 读完即删：预读只是一次性加速，不额外留一份可能过期的缓存。
+     * 存的是**未兑现的 Promise**：某个文件读得慢 / 一直不返回时，只有它自己与排在它后面的
+     * 功能会等，前面的功能照常挂载（先等全部读完再逐个注册会把一次慢读放大成整插件启动失败）。
+     * 被 `register()` 取走的条目读完即删：预读只是一次性加速，不额外留一份可能过期的缓存；
+     * 没被取走的在 `dispose()` 时清空。
      */
     private readonly prefetched = new Map<string, Promise<{stored?: unknown; error?: unknown;}>>();
 
@@ -238,6 +239,10 @@ export class ConfigStore {
             } catch (error) {
                 done?.({error});
             }
+        }).catch((error: unknown) => {
+            // mapper 自己已经收敛了读盘异常，走到这里说明有意外抛出。把还没兑现的预读
+            // 一律以同一个错误兑现，register() 才不会永久挂在一条没人会再 resolve 的 Promise 上。
+            pending.forEach((done) => done({error}));
         });
     }
 
