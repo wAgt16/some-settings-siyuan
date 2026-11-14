@@ -781,6 +781,28 @@ describe("改完即写", () => {
         expect(host.saveData).toHaveBeenCalledTimes(1);
     });
 
+    it("连续输入从最后一次输入重新计时", async () => {
+        vi.useFakeTimers();
+        try {
+            const {q, host} = await open();
+            const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
+
+            input.value = "一";
+            fire(input, "input");
+            await vi.advanceTimersByTimeAsync(300);
+            input.value = "一二";
+            fire(input, "input");
+            await vi.advanceTimersByTimeAsync(300);
+            // 距第一次输入 600ms，但距最后一次只有 300ms：静默期要从最后一次算起
+            expect(host.saveData).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(150);
+            expect(host.saveData).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("一个功能的立即提交不会吞掉另一个功能的静默期写盘", async () => {
         const {q, host} = await open([featureOf("alpha"), featureOf("beta")]);
         const text = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
