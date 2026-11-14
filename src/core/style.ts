@@ -10,6 +10,14 @@
 const ATTR = "data-some-settings-style";
 
 /**
+ * owner → 那个 `<style>` 元素。
+ *
+ * 配置驱动界面的功能每次设置变化都会重写一次 CSS，找元素不该每次都跑一遍属性选择器；
+ * 元素被外部移除（宿主清 `<head>`、整页重载）时 `isConnected` 会是 false，届时重建。
+ */
+const styleElements = new Map<string, HTMLStyleElement>();
+
+/**
  * 写入/更新某功能的一段 CSS。
  *
  * 同一个 owner 重复调用只会更新同一个 <style> 的内容，
@@ -20,11 +28,12 @@ export const addStyle = (owner: string, css: string): () => void => {
     if (!css.trim()) {
         return () => undefined;
     }
-    let element = document.head.querySelector<HTMLStyleElement>(`style[${ATTR}="${CSS.escape(owner)}"]`);
-    if (!element) {
+    let element = styleElements.get(owner);
+    if (!element || !element.isConnected) {
         element = document.createElement("style");
         element.setAttribute(ATTR, owner);
         document.head.append(element);
+        styleElements.set(owner, element);
     }
     element.textContent = css;
 
@@ -33,5 +42,6 @@ export const addStyle = (owner: string, css: string): () => void => {
 
 /** 卸载某功能残留的全部样式（防御性清理，用于异常路径）。 */
 export const removeStylesOf = (owner: string): void => {
+    styleElements.delete(owner);
     document.querySelectorAll(`style[${ATTR}="${CSS.escape(owner)}"]`).forEach((element) => element.remove());
 };

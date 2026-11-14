@@ -53,6 +53,15 @@ describe("addStyle", () => {
         expect(stylesOf("beta")).toHaveLength(1);
     });
 
+    it("宿主清掉 head 之后重新注入会新建一份样式表", () => {
+        addStyle("demo", ".a{color:red}");
+        document.head.innerHTML = "";
+        addStyle("demo", ".a{color:blue}");
+        const styles = stylesOf("demo");
+        expect(styles).toHaveLength(1);
+        expect(styles[0].textContent).toBe(".a{color:blue}");
+    });
+
     it("撤销函数可以安全调用多次", () => {
         const remove = addStyle("demo", ".a{}");
         remove();
