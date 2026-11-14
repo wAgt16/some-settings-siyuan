@@ -1231,11 +1231,8 @@ export class SettingsPanel {
         this.armFlushTimer();
     }
 
-    /** 排一次静默期结束后的写盘；已有计时器时不重复排。 */
+    /** 排一次静默期结束后的写盘（调用方负责先清掉旧计时器，这样每次 input 都重新计时）。 */
     private armFlushTimer(): void {
-        if (this.flushTimer !== undefined) {
-            return;
-        }
         this.flushTimer = window.setTimeout(() => {
             this.flushTimer = undefined;
             void this.flushPending();

@@ -1582,6 +1582,41 @@ describe("搜索", () => {
             expect(last[0].dataset.ssFeature).toBe("secondary");
         });
 
+        it("反复切换查询后，每页仍然只有一个最后一行标记", async () => {
+            const {root, qa} = await open(twoInEditor());
+            const input = searchBox(root);
+
+            for (const query of ["甲功能", "乙功能", "甲功能"]) {
+                typeQuery(input, query);
+                const marked = qa(".config-item--last-visible");
+                expect(marked).toHaveLength(1);
+                const visible = qa(".config-item").filter((row) => !hidden(row));
+                expect(marked[0]).toBe(visible[visible.length - 1]);
+            }
+        });
+
+        it("清空搜索后不留下相邻的文本节点", async () => {
+            const {root, qa} = await open(twoInEditor());
+            const input = searchBox(root);
+            // 只命中标题的第一个字：高亮会把「甲功能」切成 mark + 文本两段，
+            // 收尾时如果不合并相邻文本节点，这里就会留下两个并排的 Text
+            typeQuery(input, "甲");
+            typeQuery(input, "");
+
+            const hasAdjacentText = (element: Element): boolean => {
+                let previousWasText = false;
+                for (const node of [...element.childNodes]) {
+                    const isText = node.nodeType === 3;
+                    if (isText && previousWasText) {
+                        return true;
+                    }
+                    previousWasText = isText;
+                }
+                return false;
+            };
+            expect(qa(".config-item__main").some(hasAdjacentText)).toBe(false);
+        });
+
         it("过滤后子行的收尾标记仍落在每个可见功能的最后一个子行上", async () => {
             const {root, qa} = await open(twoInEditor());
             const input = searchBox(root);
