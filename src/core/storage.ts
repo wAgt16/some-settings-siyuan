@@ -16,6 +16,41 @@ import {createLogger} from "./log";
 
 const log = createLogger("core.storage");
 
+/**
+ * 一次读 / 写 / 删都是一次内核往返。逐个 await 会把 N 次往返串成一条线，
+ * 全部并发又会一次性把请求全压给内核。上限取 4：墙钟时间压到「往返 × 批数」，
+ * 又不会让一次批量导入把内核的请求队列打满。
+ */
+export const CONFIG_IO_CONCURRENCY = 4;
+
+/**
+ * 以有限并发跑一批异步任务，结果按输入顺序返回。
+ *
+ * 按顺序回填结果，调用方仍然可以按输入顺序汇报问题，不受完成顺序影响。
+ * `run` 自己负责把异常收敛成返回值（这里不捕获，抛出去会中断剩余任务）。
+ */
+export const mapLimit = async <T, R>(
+    items: readonly T[],
+    limit: number,
+    run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> => {
+    const results = new Array<R>(items.length);
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+        for (;;) {
+            const index = cursor;
+            cursor += 1;
+            if (index >= items.length) {
+                return;
+            }
+            results[index] = await run(items[index], index);
+        }
+    };
+    const workers = Math.max(1, Math.min(limit, items.length));
+    await Promise.all(Array.from({length: workers}, () => worker()));
+    return results;
+};
+
 /** 插件在思源工作空间里的私有目录。 */
 const storageDirOf = (plugin: Plugin): string => `/data/storage/petal/${plugin.name}`;
 

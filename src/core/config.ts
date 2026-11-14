@@ -16,7 +16,9 @@ import type {Plugin} from "siyuan";
 import {createLogger} from "./log";
 import {featureById} from "./registry";
 import {
+    CONFIG_IO_CONCURRENCY,
     listStoredFiles,
+    mapLimit,
     readStoredFile,
     removeStoredFile,
     writeStoredFile,
@@ -194,9 +196,39 @@ export class ConfigStore {
     private readonly entries = new Map<string, Entry>();
     private readonly listeners = new Map<string, Set<() => void>>();
     private readonly patchQueues = new Map<string, Promise<void>>();
+    /**
+     * `prefetch()` 已经读回来的原始值，键是功能 id。
+     *
+     * 只影响「什么时候读」，`register()` 仍然按调用顺序应用，于是挂载顺序与日志顺序都不变。
+     * 读完即删：预读只是一次性加速，不额外留一份可能过期的缓存。
+     */
+    private readonly prefetched = new Map<string, {stored?: unknown; error?: unknown;}>();
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * 并发预读一批功能的配置文件。
+     *
+     * 启动阶段每个功能各要一次 `loadData`，逐个 await 会把 N 次内核往返串起来
+     * （实测 34 个功能、每次 2ms 时要 87ms）；这些文件互不依赖，可以先一起读回来，
+     * 再由 `register()` 按注册表顺序逐个应用。读失败不抛：`register()` 里按老规矩
+     * 记一条警告并回落默认值。
+     */
+    async prefetch(definitions: FeatureDefinition[]): Promise<void> {
+        const reads = await mapLimit(
+            definitions,
+            CONFIG_IO_CONCURRENCY,
+            async (definition): Promise<[string, {stored?: unknown; error?: unknown;}]> => {
+                try {
+                    return [definition.id, {stored: await this.plugin.loadData(storageNameOf(definition.id))}];
+                } catch (error) {
+                    return [definition.id, {error}];
+                }
+            },
+        );
+        reads.forEach(([id, read]) => this.prefetched.set(id, read));
     }
 
     /** 用 schema 默认值建立内存态，并读回磁盘上已有的配置。 */
@@ -213,10 +245,21 @@ export class ConfigStore {
             return;
         }
         let stored: unknown = null;
-        try {
-            stored = await this.plugin.loadData(storageNameOf(id));
-        } catch (error) {
-            log.warn(`cannot read ${storageNameOf(id)}; using the defaults`, error);
+        const prefetched = this.prefetched.get(id);
+        this.prefetched.delete(id);
+        if (prefetched) {
+            // 预读失败与现场读失败的处理完全一致：记一条警告，回落默认值
+            if ("error" in prefetched) {
+                log.warn(`cannot read ${storageNameOf(id)}; using the defaults`, prefetched.error);
+            } else {
+                stored = prefetched.stored;
+            }
+        } else {
+            try {
+                stored = await this.plugin.loadData(storageNameOf(id));
+            } catch (error) {
+                log.warn(`cannot read ${storageNameOf(id)}; using the defaults`, error);
+            }
         }
         // 文件不存在时宿主 resolve 空串
         if (typeof stored === "string") {
@@ -296,13 +339,14 @@ export class ConfigStore {
     private async writeFiles(files: {storageName: string; value: FeatureConfig;}[]): Promise<void> {
         const failed: string[] = [];
         log.info(`writing ${files.length} configuration file(s)`);
-        for (const {storageName, value} of files) {
+        // 每个文件都是独立的「写 + 读回」，彼此没有先后关系，按有限并发一起跑到完成；
+        // 结果按输入顺序回填，问题清单的顺序仍然与文件清单一致。
+        const problems = await mapLimit(files, CONFIG_IO_CONCURRENCY, async ({storageName, value}) => {
             log.info(`writing ${storageName}`, value);
             const status = await writeStoredFile(this.plugin, storageName, value);
             if (!status.ok) {
                 log.error(`${storageName} was rejected by the kernel: ${status.detail}`);
-                failed.push(`${storageName}: ${status.detail}`);
-                continue;
+                return `${storageName}: ${status.detail}`;
             }
             const readBack = await readStoredFile(this.plugin, storageName);
             const detail = describeMismatch(value, readBack);
@@ -311,11 +355,16 @@ export class ConfigStore {
                     written: value,
                     readBack,
                 });
-                failed.push(`${storageName}：${detail}`);
-            } else {
-                log.info(`${storageName} written and read back consistently`);
+                return `${storageName}：${detail}`;
             }
-        }
+            log.info(`${storageName} written and read back consistently`);
+            return "";
+        });
+        problems.forEach((problem) => {
+            if (problem) {
+                failed.push(problem);
+            }
+        });
         if (failed.length > 0) {
             throw attachProblems(failed);
         }
@@ -392,16 +441,22 @@ export class ConfigStore {
         const cleared: string[] = [];
         const files = await this.storedFiles();
         log.info(`clearing ${files.length} configuration file(s)`);
-        for (const {id, storageName} of files) {
-            const status = await removeStoredFile(this.plugin, storageName);
+        // 删的是互不依赖的文件，按有限并发一起删；日志与问题清单仍按文件顺序落，
+        // 用户看到的顺序不随完成先后变化。
+        const outcomes = await mapLimit(
+            files,
+            CONFIG_IO_CONCURRENCY,
+            async ({storageName}) => ({storageName, status: await removeStoredFile(this.plugin, storageName)}),
+        );
+        outcomes.forEach(({storageName, status}, index) => {
             if (status.ok) {
                 log.info(`cleared ${storageName}`);
-                cleared.push(id);
-                continue;
+                cleared.push(files[index].id);
+                return;
             }
             log.warn(`failed to clear ${storageName}: ${status.detail}`);
             failed.push(`${storageName}: ${status.detail}`);
-        }
+        });
         cleared.forEach((id) => {
             const entry = this.entries.get(id);
             if (!entry) {
@@ -423,14 +478,20 @@ export class ConfigStore {
      */
     async exportAll(): Promise<Record<string, FeatureConfig>> {
         const result: Record<string, FeatureConfig> = {};
-        for (const {id, storageName} of await this.storedFiles()) {
-            const stored = await readStoredFile(this.plugin, storageName);
+        const files = await this.storedFiles();
+        // 读文件互不依赖：并发读回来，再按目录顺序组装（去重与覆盖语义与逐个读一致）
+        const reads = await mapLimit(
+            files,
+            CONFIG_IO_CONCURRENCY,
+            async ({storageName}) => ({storageName, stored: await readStoredFile(this.plugin, storageName)}),
+        );
+        reads.forEach(({storageName, stored}, index) => {
             if (!isPlainObject(stored)) {
                 log.warn(`${storageName} does not hold an object, skipping it in the export`);
-                continue;
+                return;
             }
-            result[id] = stored;
-        }
+            result[files[index].id] = stored;
+        });
         log.info(`exported ${Object.keys(result).length} configuration file(s)`, Object.keys(result));
         return result;
     }
@@ -496,5 +557,6 @@ export class ConfigStore {
     /** 插件卸载时收尾：清掉订阅者。待写的改动由设置面板在关闭时自己补上。 */
     dispose(): void {
         this.listeners.clear();
+        this.prefetched.clear();
     }
 }
