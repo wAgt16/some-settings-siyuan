@@ -25,8 +25,9 @@ export const openExternalLink = (href: string, event?: MouseEvent): void => {
     try {
         window.open(href, "_blank");
     } catch (error) {
-        // 弹窗被拦截、宿主没提供 window.open 时只记录：这是一次用户动作的终点，
-        // 不能让异常冒到事件循环里把后面的处理器一起打断。
+        // 弹窗被拦截、宿主没提供 window.open 时只记录，不弹提示：改动前的行为是
+        // 「点了没反应 + 控制台一条未捕获异常」，用户看不到任何信息；这里保持一样的结果，
+        // 但不再让异常冒到事件循环里把后面的处理器一起打断。
         reportError("core.link", error, false);
     }
 };
