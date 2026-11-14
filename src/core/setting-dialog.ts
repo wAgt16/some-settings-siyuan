@@ -1215,13 +1215,27 @@ export class SettingsPanel {
         this.pending.delete(featureId);
         // 立即提交后旧计时器必须失效，否则写入途中再次输入会留下一次没有新输入触发的静默写盘。
         this.clearFlushTimer();
-        return this.write(featureId, queued ? {...queued, ...patch} : patch);
+        const writing = this.write(featureId, queued ? {...queued, ...patch} : patch);
+        // 别的功能还有静默期里的输入：刚才清掉的计时器是共用的，这里把它重新排上，
+        // 否则那些改动要等到关面板才落盘（彼此无关的两个输入框，改完 A 再去改 B 就会触发）。
+        if (this.pending.size > 0) {
+            this.armFlushTimer();
+        }
+        return writing;
     }
 
     /** 把一次改动放进静默队列；静默期结束后统一写盘。 */
     private schedule(featureId: string, patch: FeatureConfig): void {
         this.pending.set(featureId, {...this.pending.get(featureId), ...patch});
         this.clearFlushTimer();
+        this.armFlushTimer();
+    }
+
+    /** 排一次静默期结束后的写盘；已有计时器时不重复排。 */
+    private armFlushTimer(): void {
+        if (this.flushTimer !== undefined) {
+            return;
+        }
         this.flushTimer = window.setTimeout(() => {
             this.flushTimer = undefined;
             void this.flushPending();

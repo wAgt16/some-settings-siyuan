@@ -781,6 +781,21 @@ describe("改完即写", () => {
         expect(host.saveData).toHaveBeenCalledTimes(1);
     });
 
+    it("一个功能的立即提交不会吞掉另一个功能的静默期写盘", async () => {
+        const {q, host} = await open([featureOf("alpha"), featureOf("beta")]);
+        const text = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
+        text.value = "待写";
+        fire(text, "input");
+        expect(host.saveData).not.toHaveBeenCalled();
+
+        // 开关是一次立即提交：它清掉的计时器是共用那一个，必须给还在静默期的 alpha 重新排上
+        const toggle = q<HTMLInputElement>('[data-ss-switch="beta::enabled"]')!;
+        toggle.checked = true;
+        fire(toggle, "change");
+
+        await vi.waitFor(() => expect(host.files.get("feature-alpha")).toMatchObject({label: "待写"}));
+    });
+
     it("静默期还没到就失焦时，改动立刻写盘且只写一次", async () => {
         const {q, host} = await open();
         const input = q<HTMLInputElement>('[data-ss-text="alpha::label"]')!;
