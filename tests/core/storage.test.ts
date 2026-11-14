@@ -284,6 +284,40 @@ describe("mapLimit", () => {
         expect(run).not.toHaveBeenCalled();
     });
 
+    it("上限大于任务数时按任务数并发", async () => {
+        let running = 0;
+        let peak = 0;
+        const results = await mapLimit([1, 2], 8, async (value) => {
+            running += 1;
+            peak = Math.max(peak, running);
+            await new Promise((resolve) => setTimeout(resolve, 2));
+            running -= 1;
+            return value * 2;
+        });
+        expect(results).toEqual([2, 4]);
+        expect(peak).toBe(2);
+    });
+
+    it("上限为 0 时至少跑一个，不会卡死", async () => {
+        const run = vi.fn(async (value: number) => value);
+        await expect(mapLimit([1, 2, 3], 0, run)).resolves.toEqual([1, 2, 3]);
+        expect(run).toHaveBeenCalledTimes(3);
+    });
+
+    it("任务抛错后，已启动的其余任务仍会跑完", async () => {
+        const ran: number[] = [];
+        void mapLimit([1, 2, 3, 4], 2, async (value) => {
+            ran.push(value);
+            if (value === 1) {
+                throw new Error("boom");
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            return value;
+        }).catch(() => undefined);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect([...ran].sort()).toEqual([1, 2, 3, 4]);
+    });
+
     it("任务抛错时整体拒绝", async () => {
         await expect(mapLimit([1, 2, 3], 2, async (value) => {
             if (value === 2) {
