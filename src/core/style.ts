@@ -31,8 +31,13 @@ export const addStyle = (owner: string, css: string): () => void => {
     let element = styleElements.get(owner);
     if (!element || !element.isConnected) {
         // 缓存未命中时仍先查一次 DOM：插件重载、上次卸载没走完时，页面里可能已经躺着
-        // 同一份样式表。直接 append 会留下两份，旧规则继续生效（改了设置样式却没变）。
-        element = document.head.querySelector<HTMLStyleElement>(`style[${ATTR}="${CSS.escape(owner)}"]`);
+        // 同一份样式表。直接 append 会留下后面的旧规则继续生效（改了设置样式却没变）。
+        // 残留多份时只保留最后一份 —— 同优先级下正是它生效，那才是要改写的那一份。
+        const existing = document.head.querySelectorAll<HTMLStyleElement>(`style[${ATTR}="${CSS.escape(owner)}"]`);
+        element = existing[existing.length - 1];
+        for (let index = 0; index < existing.length - 1; index += 1) {
+            existing[index].remove();
+        }
         if (!element) {
             element = document.createElement("style");
             element.setAttribute(ATTR, owner);

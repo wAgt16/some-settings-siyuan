@@ -67,6 +67,22 @@ describe("addStyle", () => {
         expect(styles[0].textContent).toBe(".a{color:blue}");
     });
 
+    it("页面里残留多份同一 owner 的样式表时只留最后一份并改写它", () => {
+        const first = document.createElement("style");
+        first.setAttribute(ATTR, "demo");
+        first.textContent = ".a{color:red}";
+        const last = document.createElement("style");
+        last.setAttribute(ATTR, "demo");
+        last.textContent = ".a{color:green}";
+        document.head.append(first, last);
+
+        addStyle("demo", ".a{color:blue}");
+        const styles = stylesOf("demo");
+        expect(styles).toHaveLength(1);
+        expect(styles[0]).toBe(last);
+        expect(styles[0].textContent).toBe(".a{color:blue}");
+    });
+
     it("宿主清掉 head 之后重新注入会新建一份样式表", () => {
         addStyle("demo", ".a{color:red}");
         document.head.innerHTML = "";
