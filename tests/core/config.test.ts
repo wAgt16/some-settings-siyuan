@@ -734,6 +734,38 @@ describe("prefetch", () => {
         expect(vi.mocked(console.warn)).toHaveBeenCalled();
     });
 
+    it("某个文件读得慢只影响它自己的 register", async () => {
+        const host = new FakeHost();
+        host.files.set("feature-alpha", {enabled: true});
+        host.files.set("feature-beta", {enabled: true});
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const original = host.loadData.getMockImplementation() as (name: string) => Promise<unknown>;
+        host.loadData.mockImplementation(async (name: string): Promise<unknown> => {
+            if (name === "feature-alpha") {
+                await gate;
+            }
+            return original(name);
+        });
+
+        const store = new ConfigStore(host.asPlugin());
+        await store.prefetch([definitionOf("alpha"), definitionOf("beta")]);
+        // alpha 的读盘还悬着，beta 照常拿到自己的配置
+        await expect(store.register(definitionOf("beta"))).resolves.toMatchObject({enabled: true});
+
+        let resolved = false;
+        const alpha = store.register(definitionOf("alpha")).then(() => {
+            resolved = true;
+        });
+        await new Promise((done) => setTimeout(done, 5));
+        expect(resolved).toBe(false);
+        release();
+        await alpha;
+        expect(resolved).toBe(true);
+    });
+
     it("没有预读过的功能仍然现场读盘", async () => {
         const host = new FakeHost();
         host.files.set("feature-alpha", {enabled: true});

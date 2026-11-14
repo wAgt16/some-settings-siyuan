@@ -200,9 +200,11 @@ export class ConfigStore {
      * `prefetch()` 已经读回来的原始值，键是功能 id。
      *
      * 只影响「什么时候读」，`register()` 仍然按调用顺序应用，于是挂载顺序与日志顺序都不变。
+     * 存的是**未兑现的 Promise**：某个文件读得慢 / 一直不返回时，只有它自己的 `register()`
+     * 会等，其余功能照常挂载（先等全部读完再逐个注册会把一次慢读放大成整插件启动失败）。
      * 读完即删：预读只是一次性加速，不额外留一份可能过期的缓存。
      */
-    private readonly prefetched = new Map<string, {stored?: unknown; error?: unknown;}>();
+    private readonly prefetched = new Map<string, Promise<{stored?: unknown; error?: unknown;}>>();
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
@@ -217,18 +219,26 @@ export class ConfigStore {
      * 记一条警告并回落默认值。
      */
     async prefetch(definitions: FeatureDefinition[]): Promise<void> {
-        const reads = await mapLimit(
-            definitions,
-            CONFIG_IO_CONCURRENCY,
-            async (definition): Promise<[string, {stored?: unknown; error?: unknown;}]> => {
-                try {
-                    return [definition.id, {stored: await this.plugin.loadData(storageNameOf(definition.id))}];
-                } catch (error) {
-                    return [definition.id, {error}];
-                }
-            },
-        );
-        reads.forEach(([id, read]) => this.prefetched.set(id, read));
+        // 每条配置一个「先发出去的 Promise」：请求按 CONFIG_IO_CONCURRENCY 的并发度提前发出，
+        // 但每条各自兑现，`register()` 只等自己那一条 —— 某个文件读得慢不会拖住别的功能。
+        const pending = new Map<string, (read: {stored?: unknown; error?: unknown;}) => void>();
+        definitions.forEach((definition) => {
+            let resolve: (read: {stored?: unknown; error?: unknown;}) => void = () => undefined;
+            const promise = new Promise<{stored?: unknown; error?: unknown;}>((done) => {
+                resolve = done;
+            });
+            pending.set(definition.id, resolve);
+            this.prefetched.set(definition.id, promise);
+        });
+        // 请求本身不等待：预读只是把读盘提前，真正的等待发生在各自 register() 里
+        void mapLimit(definitions, CONFIG_IO_CONCURRENCY, async (definition) => {
+            const done = pending.get(definition.id);
+            try {
+                done?.({stored: await this.plugin.loadData(storageNameOf(definition.id))});
+            } catch (error) {
+                done?.({error});
+            }
+        });
     }
 
     /** 用 schema 默认值建立内存态，并读回磁盘上已有的配置。 */
@@ -249,10 +259,11 @@ export class ConfigStore {
         this.prefetched.delete(id);
         if (prefetched) {
             // 预读失败与现场读失败的处理完全一致：记一条警告，回落默认值
-            if ("error" in prefetched) {
-                log.warn(`cannot read ${storageNameOf(id)}; using the defaults`, prefetched.error);
+            const read = await prefetched;
+            if ("error" in read) {
+                log.warn(`cannot read ${storageNameOf(id)}; using the defaults`, read.error);
             } else {
-                stored = prefetched.stored;
+                stored = read.stored;
             }
         } else {
             try {
