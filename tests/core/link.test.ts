@@ -40,9 +40,14 @@ describe("openExternalLink", () => {
 
     it("window.open 抛错时不冒泡到调用方", () => {
         window.siyuan.ws.app.plugins = [] as never;
+        const original = window.open;
         window.open = (() => {
             throw new Error("blocked by the host");
         }) as unknown as typeof window.open;
-        expect(() => openExternalLink("https://example.com")).not.toThrow();
+        try {
+            expect(() => openExternalLink("https://example.com")).not.toThrow();
+        } finally {
+            window.open = original;
+        }
     });
 });

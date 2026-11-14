@@ -30,9 +30,14 @@ export const addStyle = (owner: string, css: string): () => void => {
     }
     let element = styleElements.get(owner);
     if (!element || !element.isConnected) {
-        element = document.createElement("style");
-        element.setAttribute(ATTR, owner);
-        document.head.append(element);
+        // 缓存未命中时仍先查一次 DOM：插件重载、上次卸载没走完时，页面里可能已经躺着
+        // 同一份样式表。直接 append 会留下两份，旧规则继续生效（改了设置样式却没变）。
+        element = document.head.querySelector<HTMLStyleElement>(`style[${ATTR}="${CSS.escape(owner)}"]`);
+        if (!element) {
+            element = document.createElement("style");
+            element.setAttribute(ATTR, owner);
+            document.head.append(element);
+        }
         styleElements.set(owner, element);
     }
     element.textContent = css;

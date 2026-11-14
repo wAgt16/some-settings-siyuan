@@ -53,6 +53,20 @@ describe("addStyle", () => {
         expect(stylesOf("beta")).toHaveLength(1);
     });
 
+    it("页面里已有同一份样式表时复用，不重复注入", () => {
+        // 模拟「模块缓存是空的，但上次插件实例留下的样式表还在页面里」
+        const existing = document.createElement("style");
+        existing.setAttribute(ATTR, "demo");
+        existing.textContent = ".a{color:red}";
+        document.head.append(existing);
+
+        addStyle("demo", ".a{color:blue}");
+        const styles = stylesOf("demo");
+        expect(styles).toHaveLength(1);
+        expect(styles[0]).toBe(existing);
+        expect(styles[0].textContent).toBe(".a{color:blue}");
+    });
+
     it("宿主清掉 head 之后重新注入会新建一份样式表", () => {
         addStyle("demo", ".a{color:red}");
         document.head.innerHTML = "";
